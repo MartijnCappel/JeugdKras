@@ -453,7 +453,15 @@ export default function KrasApp() {
     setLogbookState(next);
     if (BACKEND) enqueue(() => persistLogbookDiff(old, next));
   }
-  const [conversations, setConversations] = useState(BACKEND ? [] : initialConversations);
+  const [conversations, setConversationsState] = useState(BACKEND ? [] : initialConversations);
+  const conversationsRef = useRef(conversations);
+  function setConversations(updater) {
+    const old = conversationsRef.current;
+    const next = typeof updater === "function" ? updater(old) : updater;
+    conversationsRef.current = next;
+    setConversationsState(next);
+    if (BACKEND) enqueue(() => persistConversationDiff(old, next));
+  }
 
   const [currentUserId, setCurrentUserId] = useState(null);
   const [tab, setTab] = useState("home");
@@ -471,7 +479,23 @@ export default function KrasApp() {
   // Per gebruiker bijgehouden welke nieuwe trainingen al bekeken zijn.
   const [seenTrainingIds, setSeenTrainingIds] = useState({});
   // Wijzigingen van spelers naar een rode score (<= 2) in hun voortgang, en per gebruiker welke al gezien zijn.
-  const [progressAlerts, setProgressAlerts] = useState([]);
+  const [progressAlerts, setProgressAlertsState] = useState([]);
+  const alertsRef = useRef([]);
+  function setProgressAlerts(updater) {
+    const old = alertsRef.current;
+    const next = typeof updater === "function" ? updater(old) : updater;
+    alertsRef.current = next;
+    setProgressAlertsState(next);
+    if (BACKEND) {
+      const fresh = next.filter((a) => !old.some((o) => o.id === a.id));
+      if (fresh.length) {
+        enqueue(async () => {
+          const { error } = await supabase.from("progress_alerts").insert(fresh.map((a) => ({ id: a.id, player_id: a.playerId, field: a.field })));
+          if (error) flash("Melding opslaan mislukt: " + error.message);
+        });
+      }
+    }
+  }
   const [seenAlertIds, setSeenAlertIds] = useState({});
   // Heeft iemand meerdere rollen, dan bepaalt de actieve rol wat er in de app te zien en te doen is.
   const [activeRole, setActiveRole] = useState(null);
@@ -691,6 +715,81 @@ export default function KrasApp() {
     if (failed) await loadLogbook();
   }
 
+  function formatChatTime(iso) {
+    const d = new Date(iso);
+    const now = new Date();
+    if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" });
+    return d.toLocaleDateString("nl-NL", { day: "numeric", month: "short" });
+  }
+
+  async function loadConversations(userId) {
+    const { data, error } = await supabase
+      .from("conversations")
+      .select("*, conversation_participants(user_id,read_count), conversation_messages(sender_id,text,created_at)")
+      .order("created_at", { ascending: false });
+    if (error) { flash("Berichten laden mislukt: " + error.message); return; }
+    const uid = userId || sessionUserRef.current;
+    const list = (data || []).map((c) => ({
+      id: c.id, isGroup: c.is_group || undefined,
+      participantIds: (c.conversation_participants || []).map((p) => p.user_id),
+      messages: (c.conversation_messages || []).slice().sort((a, b) => a.created_at.localeCompare(b.created_at))
+        .map((m) => ({ from: m.sender_id, text: m.text, time: formatChatTime(m.created_at), at: m.created_at })),
+    }));
+    list.sort((a, b) => {
+      const la = a.messages.length ? a.messages[a.messages.length - 1].at : "";
+      const lb = b.messages.length ? b.messages[b.messages.length - 1].at : "";
+      return lb.localeCompare(la);
+    });
+    conversationsRef.current = list;
+    setConversationsState(list);
+    setSeenConversationCounts(Object.fromEntries((data || []).map((c) => {
+      const mine = (c.conversation_participants || []).find((p) => p.user_id === uid);
+      return [c.id, mine ? mine.read_count : 0];
+    })));
+  }
+
+  async function loadAlerts(userId) {
+    const since = new Date(Date.now() - 30 * 86400000).toISOString();
+    const { data, error } = await supabase.from("progress_alerts").select("*").gte("created_at", since);
+    if (error) { flash("Meldingen laden mislukt: " + error.message); return; }
+    const list = (data || []).map((a) => ({ id: a.id, playerId: a.player_id, field: a.field }));
+    alertsRef.current = list;
+    setProgressAlertsState(list);
+    const uid = userId || sessionUserRef.current;
+    if (uid) {
+      const { data: st } = await supabase.from("alert_user_state").select("alert_id").eq("user_id", uid);
+      if (st) setSeenAlertIds((s) => ({ ...s, [uid]: st.map((x) => x.alert_id) }));
+    }
+  }
+
+  async function persistConversationDiff(oldList, newList) {
+    let failed = false;
+    const oldIds = new Set(oldList.map((c) => c.id));
+    for (const c of newList) {
+      if (!oldIds.has(c.id)) {
+        const r1 = await supabase.from("conversations").insert({ id: c.id, is_group: !!c.isGroup, created_by: sessionUserRef.current });
+        if (r1.error) { flash("Gesprek starten mislukt: " + r1.error.message); failed = true; continue; }
+        const me = sessionUserRef.current;
+        const ordered = [me, ...c.participantIds.filter((x) => x !== me)];
+        for (const uid of ordered) {
+          const r2 = await supabase.from("conversation_participants").insert({ conversation_id: c.id, user_id: uid });
+          if (r2.error) { flash("Gesprek starten mislukt: " + r2.error.message); failed = true; }
+        }
+        if ((c.messages || []).length) {
+          const r3 = await supabase.from("conversation_messages").insert(c.messages.map((m) => ({ conversation_id: c.id, sender_id: m.from, text: m.text })));
+          if (r3.error) { flash("Bericht versturen mislukt: " + r3.error.message); failed = true; }
+        }
+        continue;
+      }
+      const o = oldList.find((x) => x.id === c.id);
+      if ((c.messages || []).length > (o.messages || []).length) {
+        const r = await supabase.from("conversation_messages").insert(c.messages.slice(o.messages.length).map((m) => ({ conversation_id: c.id, sender_id: m.from, text: m.text })));
+        if (r.error) { flash("Bericht versturen mislukt: " + r.error.message); failed = true; }
+      }
+    }
+    if (failed) await loadConversations();
+  }
+
   async function loadAll(userId) {
     await loadProfiles();
     await loadNames();
@@ -699,6 +798,8 @@ export default function KrasApp() {
     await loadTrainings(userId);
     await loadSchemas(userId);
     await loadLogbook();
+    await loadConversations(userId);
+    await loadAlerts(userId);
   }
 
   async function persistTrainingDiff(oldList, newList) {
@@ -883,6 +984,8 @@ export default function KrasApp() {
       loadTrainings();
       loadSchemas();
       loadLogbook();
+      loadConversations();
+      loadAlerts();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, currentUserId]);
@@ -890,15 +993,20 @@ export default function KrasApp() {
   useEffect(() => {
     if (!BACKEND || !currentUserId) return undefined;
     let timer = null;
+    let timer2 = null;
     const refresh = () => { clearTimeout(timer); timer = setTimeout(() => { loadTrainings(); }, 400); };
+    const refreshChats = () => { clearTimeout(timer2); timer2 = setTimeout(() => { loadConversations(); loadAlerts(); }, 400); };
     const channel = supabase
       .channel("trainingen-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "training_messages" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "training_attendance" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "trainings" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "training_players" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "conversation_messages" }, refreshChats)
+      .on("postgres_changes", { event: "*", schema: "public", table: "conversation_participants" }, refreshChats)
+      .on("postgres_changes", { event: "*", schema: "public", table: "progress_alerts" }, refreshChats)
       .subscribe();
-    return () => { clearTimeout(timer); supabase.removeChannel(channel); };
+    return () => { clearTimeout(timer); clearTimeout(timer2); supabase.removeChannel(channel); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUserId]);
 
@@ -964,6 +1072,11 @@ export default function KrasApp() {
     const c = conversations.find((x) => x.id === convoId);
     if (!c) return;
     setSeenConversationCounts((s) => ({ ...s, [convoId]: c.messages.length }));
+    if (BACKEND && currentUser) {
+      enqueue(async () => {
+        await supabase.from("conversation_participants").update({ read_count: c.messages.length }).eq("conversation_id", convoId).eq("user_id", currentUser.id);
+      });
+    }
   }
 
   function markTrainingSeen(trainingId) {
@@ -982,6 +1095,9 @@ export default function KrasApp() {
     const ids = progressAlerts.filter((a) => a.playerId === playerId).map((a) => a.id);
     if (ids.length === 0) return;
     setSeenAlertIds((s) => ({ ...s, [currentUser.id]: Array.from(new Set([...(s[currentUser.id] || []), ...ids])) }));
+    if (BACKEND) {
+      supabase.from("alert_user_state").upsert(ids.map((id) => ({ user_id: currentUser.id, alert_id: id })), { onConflict: "user_id,alert_id" }).then(() => {});
+    }
   }
 
   function markSchemaSeen(schemaId) {
@@ -1489,7 +1605,7 @@ export default function KrasApp() {
                 const me = players.find((p) => p.userId === currentUser.id);
                 // Verandert de speler een score naar rood (1 of 2)? Dan krijgen gekoppelde trainers/begeleiders een rood puntje.
                 if (me && PROGRESS_FIELD_LABEL[field] && value <= 2 && me[field] !== value) {
-                  setProgressAlerts((a) => [...a, { id: "a" + Date.now() + "_" + field, playerId: me.id, field }]);
+                  setProgressAlerts((a) => [...a, { id: newId("a") + (BACKEND ? "" : "_" + field), playerId: me.id, field }]);
                 }
                 setPlayers((ps) => ps.map((p) => (p.userId === currentUser.id ? { ...p, [field]: value } : p)));
               }}
@@ -1512,7 +1628,7 @@ export default function KrasApp() {
                   setActiveConvoId(existing.id);
                   markConversationRead(existing.id);
                 } else {
-                  const nc = { id: "c" + Date.now(), participantIds: [currentUser.id, userId], messages: [] };
+                  const nc = { id: newId("c"), participantIds: [currentUser.id, userId], messages: [] };
                   setConversations((cs) => [nc, ...cs]);
                   setActiveConvoId(nc.id);
                 }
