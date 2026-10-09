@@ -63,11 +63,39 @@ const SCORE_COLOR = {
   5: "bg-green-700 text-white",
 };
 
-// Toont een specialist onder zijn eigen gekozen titel i.p.v. "Specialist", indien ingesteld.
-function roleDisplay(user) {
+// Een account kan meerdere rollen hebben (user.roles). Oudere gegevens met alleen user.role blijven werken.
+function getRoles(user) {
+  if (!user) return [];
+  return user.roles && user.roles.length > 0 ? user.roles : [user.role];
+}
+function hasRole(user, role) {
+  return getRoles(user).includes(role);
+}
+// Staf = iedereen met minstens één andere rol dan speler.
+function isStaff(user) {
+  return getRoles(user).some((r) => r !== "speler");
+}
+// Staf aan wie spelers gekoppeld kunnen worden (de coördinator niet).
+function isLinkableStaff(user) {
+  return getRoles(user).some((r) => r === "trainer" || r === "begeleider" || r === "specialist");
+}
+// Rollen in vaste volgorde (die van ROLE_LABEL), zodat de weergave niet verspringt.
+function sortRoles(roles) {
+  const order = Object.keys(ROLE_LABEL);
+  return Array.from(new Set(roles)).sort((a, b) => order.indexOf(a) - order.indexOf(b));
+}
+
+function roleLabelFor(user, role) {
+  if (role === "specialist" && user && user.title) return user.title;
+  return ROLE_LABEL[role];
+}
+
+// Toont de rol(len) van iemand. Een specialist verschijnt onder zijn eigen gekozen titel i.p.v. "Specialist".
+// Met activeRole alleen die ene rol (bijvoorbeeld voor de ingelogde persoon zelf).
+function roleDisplay(user, activeRole) {
   if (!user) return "";
-  if (user.role === "specialist" && user.title) return user.title;
-  return ROLE_LABEL[user.role];
+  const roles = activeRole ? [activeRole] : getRoles(user);
+  return roles.map((r) => roleLabelFor(user, r)).join(" · ");
 }
 
 function isPastTraining(training) {
@@ -98,7 +126,7 @@ function logScoreColor(score) {
 const initialUsers = [
   { id: "u1", firstName: "Anne", lastName: "de Boer", email: "coordinator@kras.nl", role: "coordinator", status: "actief" },
   { id: "u2", firstName: "Mark", lastName: "Visser", email: "trainer@kras.nl", role: "trainer", status: "actief" },
-  { id: "u3", firstName: "Sanne", lastName: "Kok", email: "begeleider@kras.nl", role: "begeleider", status: "actief" },
+  { id: "u3", firstName: "Sanne", lastName: "Kok", email: "begeleider@kras.nl", role: "begeleider", roles: ["trainer", "begeleider"], status: "actief" },
   { id: "u4", firstName: "Dr. Lotte", lastName: "Bakker", email: "specialist@kras.nl", role: "specialist", status: "actief" },
   { id: "u5", firstName: "Tim", lastName: "Jonker", email: "speler@kras.nl", role: "speler", status: "actief" },
   { id: "u6", firstName: "Bram", lastName: "Schilder", email: "bram@mail.nl", role: "speler", status: "actief" },
@@ -331,13 +359,15 @@ function startOfWeek(dateObj) {
 
 // Twee gebruikers mogen elkaar berichten als: beiden staf zijn, of als de speler
 // gekoppeld is aan die staf-persoon (via player.coachIds). Spelers onderling niet.
+// Heeft iemand meerdere rollen, dan telt elke rol mee.
 function canMessage(a, b, players) {
-  if (a.role !== "speler" && b.role !== "speler") return true;
-  if (a.role === "speler" && b.role === "speler") return false;
-  const staffUser = a.role === "speler" ? b : a;
-  const playerUser = a.role === "speler" ? a : b;
-  const player = players.find((p) => p.userId === playerUser.id);
-  return !!player && player.coachIds.includes(staffUser.id);
+  if (isStaff(a) && isStaff(b)) return true;
+  const isLinked = (staffUser, playerUser) => {
+    if (!hasRole(playerUser, "speler")) return false;
+    const player = players.find((p) => p.userId === playerUser.id);
+    return !!player && player.coachIds.includes(staffUser.id);
+  };
+  return (isStaff(a) && isLinked(a, b)) || (isStaff(b) && isLinked(b, a));
 }
 
 // ---------------------------------------------------------------------------
@@ -370,9 +400,26 @@ export default function KrasApp() {
   // Wijzigingen van spelers naar een rode score (<= 2) in hun voortgang, en per gebruiker welke al gezien zijn.
   const [progressAlerts, setProgressAlerts] = useState([]);
   const [seenAlertIds, setSeenAlertIds] = useState({});
+  // Heeft iemand meerdere rollen, dan bepaalt de actieve rol wat er in de app te zien en te doen is.
+  const [activeRole, setActiveRole] = useState(null);
 
   const currentUser = users.find((u) => u.id === currentUserId) || null;
-  const role = currentUser?.role;
+  const myRoles = getRoles(currentUser);
+  const role = currentUser ? (myRoles.includes(activeRole) ? activeRole : myRoles[0]) : undefined;
+
+  function resetDetails() {
+    setDetailPlayerId(null);
+    setDetailSchemaId(null);
+    setDetailTrainingId(null);
+    setActiveConvoId(null);
+  }
+
+  function switchRole(r) {
+    setActiveRole(r);
+    setTab(TABS[r][0].key);
+    resetDetails();
+    setShowDemoPanel(false);
+  }
 
   function markTrainingRead(trainingId) {
     const t = trainings.find((x) => x.id === trainingId);
@@ -422,13 +469,16 @@ export default function KrasApp() {
     if (password !== "demo123") return "E-mailadres of wachtwoord onjuist";
     if (u.status === "in afwachting") return "Je account wacht nog op goedkeuring door een coördinator.";
     if (u.status === "geblokkeerd") return "Dit account is geblokkeerd. Neem contact op met de coördinator.";
+    const firstRole = getRoles(u)[0];
     setCurrentUserId(u.id);
-    setTab(TABS[u.role][0].key);
+    setActiveRole(firstRole);
+    setTab(TABS[firstRole][0].key);
     return null;
   }
 
   function logout() {
     setCurrentUserId(null);
+    setActiveRole(null);
     setDetailPlayerId(null);
     setDetailSchemaId(null);
     setDetailTrainingId(null);
@@ -444,9 +494,10 @@ export default function KrasApp() {
     return (
       <LoginScreen
         onLogin={login}
-        onDemoLogin={(id) => {
+        onDemoLogin={(id, r) => {
           setCurrentUserId(id);
-          setTab(TABS[users.find((u) => u.id === id).role][0].key);
+          setActiveRole(r);
+          setTab(TABS[r][0].key);
         }}
         users={users}
       />
@@ -492,7 +543,9 @@ export default function KrasApp() {
         {/* Top bar */}
         <div className="bg-white text-slate-900 px-4 pt-4 pb-3 flex items-center justify-between border-b border-stone-200 shrink-0 z-20">
           <div>
-            <div className="text-[11px] uppercase tracking-wide text-orange-600 font-bold">KrasApp</div>
+            <div className="text-[11px] uppercase tracking-wide text-orange-600 font-bold">
+              KrasApp{myRoles.length > 1 ? ` · ${roleLabelFor(currentUser, role)}` : ""}
+            </div>
             <div className="text-lg font-bold leading-tight text-slate-900">{tabLabel(tabs, tab)}</div>
           </div>
           <div className="flex items-center gap-2">
@@ -531,8 +584,10 @@ export default function KrasApp() {
           {tab === "beheer" && role === "coordinator" && (
             <BeheerScreen
               users={users}
-              onApprove={(id, newRole) => {
-                setUsers((us) => us.map((u) => (u.id === id ? { ...u, role: newRole, status: "actief" } : u)));
+              currentUserId={currentUser.id}
+              onApprove={(id, newRoles) => {
+                const roles = sortRoles(newRoles);
+                setUsers((us) => us.map((u) => (u.id === id ? { ...u, role: roles[0], roles, status: "actief" } : u)));
                 flash("Account goedgekeurd");
               }}
               onReject={(id) => {
@@ -542,8 +597,9 @@ export default function KrasApp() {
               onChangeStatus={(id, status) => {
                 setUsers((us) => us.map((u) => (u.id === id ? { ...u, status } : u)));
               }}
-              onChangeRole={(id, r) => {
-                setUsers((us) => us.map((u) => (u.id === id ? { ...u, role: r } : u)));
+              onChangeRole={(id, newRoles) => {
+                const roles = sortRoles(newRoles);
+                setUsers((us) => us.map((u) => (u.id === id ? { ...u, role: roles[0], roles } : u)));
               }}
               onDelete={(id) => {
                 setUsers((us) => us.filter((u) => u.id !== id));
@@ -934,22 +990,41 @@ export default function KrasApp() {
 
         {showDemoPanel && (
           <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setShowDemoPanel(false)}>
-            <div className="bg-white rounded-2xl p-4 w-72" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-white rounded-2xl p-4 w-72 max-h-[85dvh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+              {myRoles.length > 1 && (
+                <div className="mb-4">
+                  <div className="font-bold text-slate-900 mb-1">Wissel van rol</div>
+                  <div className="text-xs text-stone-500 mb-2">Jouw account heeft meerdere rollen. Kies in welke rol je de app wilt gebruiken.</div>
+                  {myRoles.map((r) => {
+                    const active = r === role;
+                    return (
+                      <button
+                        key={r}
+                        onClick={() => switchRole(r)}
+                        className={`w-full text-left px-3 py-2 rounded-lg flex items-center justify-between mb-1 border ${
+                          active ? "bg-orange-50 border-orange-300 text-orange-700 font-semibold" : "border-stone-200 text-slate-700 hover:bg-stone-100"
+                        }`}
+                      >
+                        <span>{roleLabelFor(currentUser, r)}</span>
+                        {active && <Check size={16} />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               <div className="font-bold text-slate-900 mb-2">Test als rol</div>
               {Object.entries(ROLE_LABEL).map(([r, label]) => {
-                const u = users.find((x) => x.role === r && x.status === "actief");
+                const u = users.find((x) => hasRole(x, r) && x.status === "actief");
                 if (!u) return null;
                 return (
                   <button
                     key={r}
                     onClick={() => {
                       setCurrentUserId(u.id);
+                      setActiveRole(r);
                       setTab(TABS[r][0].key);
                       setShowDemoPanel(false);
-                      setDetailPlayerId(null);
-                      setDetailSchemaId(null);
-                      setDetailTrainingId(null);
-                      setActiveConvoId(null);
+                      resetDetails();
                     }}
                     className="w-full text-left px-3 py-2 rounded-lg hover:bg-stone-100 flex items-center justify-between mb-1"
                   >
@@ -1043,12 +1118,12 @@ function LoginScreen({ onLogin, onDemoLogin, users }) {
               </div>
               <div className="grid grid-cols-2 gap-2">
                 {Object.entries(ROLE_LABEL).map(([r, label]) => {
-                  const u = users.find((x) => x.role === r && x.status === "actief");
+                  const u = users.find((x) => hasRole(x, r) && x.status === "actief");
                   if (!u) return null;
                   return (
                     <button
                       key={r}
-                      onClick={() => onDemoLogin(u.id)}
+                      onClick={() => onDemoLogin(u.id, r)}
                       className="text-xs bg-stone-100 hover:bg-stone-200 rounded-lg py-2 font-medium text-slate-700"
                     >
                       {label}
@@ -1117,7 +1192,7 @@ function HomeScreen({ user, role, players, trainings, users, onOpenPlayer }) {
       <div className="bg-orange-600 text-white rounded-2xl p-4">
         <div className="text-orange-100 text-xs uppercase font-semibold">Welkom</div>
         <div className="text-xl font-bold">{user.firstName} {user.lastName}</div>
-        <div className="text-orange-100 text-sm">{roleDisplay(user)}</div>
+        <div className="text-orange-100 text-sm">{roleDisplay(user, role)}</div>
       </div>
 
       <div>
@@ -1165,7 +1240,38 @@ function HomeScreen({ user, role, players, trainings, users, onOpenPlayer }) {
 // Beheer (coordinator)
 // ---------------------------------------------------------------------------
 
-function BeheerScreen({ users, onApprove, onReject, onChangeStatus, onChangeRole, onDelete }) {
+// Kies één of meer rollen voor een account. Er blijft altijd minstens één rol over.
+function RolePicker({ value, onChange, lockedRoles = [] }) {
+  const toggle = (r) => {
+    if (value.includes(r)) {
+      if (value.length === 1 || lockedRoles.includes(r)) return;
+      onChange(value.filter((x) => x !== r));
+    } else {
+      onChange([...value, r]);
+    }
+  };
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {Object.entries(ROLE_LABEL).map(([r, l]) => {
+        const on = value.includes(r);
+        return (
+          <button
+            key={r}
+            type="button"
+            onClick={() => toggle(r)}
+            className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${
+              on ? "bg-orange-600 text-white border-orange-600" : "bg-white text-stone-500 border-stone-300"
+            }`}
+          >
+            {l}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function BeheerScreen({ users, currentUserId, onApprove, onReject, onChangeStatus, onChangeRole, onDelete }) {
   const pending = users.filter((u) => u.status === "in afwachting");
   const active = users.filter((u) => u.status !== "in afwachting");
   const [roleChoice, setRoleChoice] = useState({});
@@ -1180,17 +1286,15 @@ function BeheerScreen({ users, onApprove, onReject, onChangeStatus, onChangeRole
             <div key={u.id} className="bg-white rounded-xl p-3 border border-stone-200">
               <div className="font-semibold text-sm text-slate-900">{u.firstName} {u.lastName}</div>
               <div className="text-xs text-stone-500 mb-2">{u.email}</div>
-              <select
-                className="w-full border border-stone-300 rounded-lg px-2 py-1.5 text-sm mb-2"
-                value={roleChoice[u.id] || "speler"}
-                onChange={(e) => setRoleChoice({ ...roleChoice, [u.id]: e.target.value })}
-              >
-                {Object.entries(ROLE_LABEL).map(([r, l]) => (
-                  <option key={r} value={r}>{l}</option>
-                ))}
-              </select>
+              <div className="text-[10px] uppercase font-semibold text-stone-400 mb-1">Rol(len)</div>
+              <div className="mb-2">
+                <RolePicker
+                  value={roleChoice[u.id] || ["speler"]}
+                  onChange={(roles) => setRoleChoice({ ...roleChoice, [u.id]: roles })}
+                />
+              </div>
               <div className="flex gap-2">
-                <button onClick={() => onApprove(u.id, roleChoice[u.id] || "speler")} className="flex-1 bg-emerald-600 text-white text-sm font-semibold py-1.5 rounded-lg flex items-center justify-center gap-1">
+                <button onClick={() => onApprove(u.id, roleChoice[u.id] || ["speler"])} className="flex-1 bg-emerald-600 text-white text-sm font-semibold py-1.5 rounded-lg flex items-center justify-center gap-1">
                   <Check size={14} /> Goedkeuren
                 </button>
                 <button onClick={() => onReject(u.id)} className="flex-1 bg-rose-100 text-rose-700 text-sm font-semibold py-1.5 rounded-lg flex items-center justify-center gap-1">
@@ -1216,16 +1320,15 @@ function BeheerScreen({ users, onApprove, onReject, onChangeStatus, onChangeRole
                   <Trash2 size={16} />
                 </button>
               </div>
+              <div className="text-[10px] uppercase font-semibold text-stone-400 mb-1">Rol(len)</div>
+              <div className="mb-2">
+                <RolePicker
+                  value={getRoles(u)}
+                  onChange={(roles) => onChangeRole(u.id, roles)}
+                  lockedRoles={u.id === currentUserId ? ["coordinator"] : []}
+                />
+              </div>
               <div className="flex gap-2">
-                <select
-                  className="flex-1 border border-stone-300 rounded-lg px-2 py-1 text-xs"
-                  value={u.role}
-                  onChange={(e) => onChangeRole(u.id, e.target.value)}
-                >
-                  {Object.entries(ROLE_LABEL).map(([r, l]) => (
-                    <option key={r} value={r}>{l}</option>
-                  ))}
-                </select>
                 <select
                   className="flex-1 border border-stone-300 rounded-lg px-2 py-1 text-xs"
                   value={u.status}
@@ -1249,7 +1352,7 @@ function BeheerScreen({ users, onApprove, onReject, onChangeStatus, onChangeRole
 
 function StafScreen({ users, players, onTogglePlayerCoach }) {
   const [openStaffId, setOpenStaffId] = useState(null);
-  const staffUsers = users.filter((u) => u.role === "trainer" || u.role === "begeleider" || u.role === "specialist");
+  const staffUsers = users.filter((u) => isLinkableStaff(u));
 
   return (
     <div className="p-4">
@@ -1370,7 +1473,7 @@ function SpelerDetailScreen({ player, users, logbook, trainings, canEdit, viewer
   const playerModules = Array.from(new Set([MODULE_ALWAYS_ON, ...(player.modules || [])]));
   const playerWeekProgram = player.weekProgram || [];
   const coaches = users.filter((u) => player.coachIds.includes(u.id));
-  const staffUsers = users.filter((u) => u.role !== "speler");
+  const staffUsers = users.filter((u) => isStaff(u));
   const canManageLinks = viewerRole !== "speler";
   const canEditPosition = viewerRole === "trainer" || viewerRole === "begeleider";
   const canEditCondition = viewerRole === "trainer" || viewerRole === "begeleider" || viewerRole === "specialist";
@@ -1751,7 +1854,7 @@ const PROGRESS_FIELD_LABEL = { mood: "Mood", fatigue: "Vermoeidheid", physicalCo
 function TrainingenScreen({ trainings, players, users, currentUser, chatReadCounts, seenTrainingIds, weekAnchor, setWeekAnchor, onOpen, onCreate }) {
   const [showCreate, setShowCreate] = useState(false);
   const [filterMode, setFilterMode] = useState("mijn");
-  const staffUsers = users.filter((u) => u.role !== "speler");
+  const staffUsers = users.filter((u) => isStaff(u));
   const visibleTrainings = filterMode === "mijn" ? trainings.filter((t) => isInvolvedInTraining(t, currentUser.id, players)) : trainings;
   const weekDays = [...Array(7)].map((_, i) => {
     const d = new Date(weekAnchor);
@@ -1955,7 +2058,7 @@ function TrainingDetailScreen({ training, players, users, currentUser, onBack, o
   const [showCancel, setShowCancel] = useState(false);
   const parts = training.playerIds.map((id) => players.find((p) => p.id === id)).filter(Boolean);
   const trainerUsers = training.trainerIds.map((id) => users.find((u) => u.id === id)).filter(Boolean);
-  const staffUsers = users.filter((u) => u.role !== "speler");
+  const staffUsers = users.filter((u) => isStaff(u));
   const counts = { aanwezig: 0, afwezig: 0, onbekend: 0 };
   training.playerIds.forEach((pid) => { counts[training.attendance[pid] || "onbekend"]++; });
   const involvedIds = [...training.trainerIds, ...parts.map((p) => p.userId)];
@@ -2852,7 +2955,7 @@ function ChatScreen({ convo, currentUser, users, onBack, onSend }) {
 function MeerScreen({ user, role, users, onLogout, players, onUpdateTitle }) {
   const [showTeam, setShowTeam] = useState(false);
   const [titleDraft, setTitleDraft] = useState(user.title || "");
-  const staff = users.filter((u) => u.role !== "speler" && u.id !== user.id);
+  const staff = users.filter((u) => isStaff(u) && u.id !== user.id);
 
   return (
     <div className="p-4 space-y-3">
