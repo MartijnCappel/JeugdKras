@@ -64,6 +64,31 @@ const SCORE_COLOR = {
 };
 
 // Een account kan meerdere rollen hebben (user.roles). Oudere gegevens met alleen user.role blijven werken.
+// Clublogo en huisstijl (oranje, wit, donker)
+const LOGO_SRC = "data:image/jpeg;base64,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";
+const BRAND_ORANGE = "#F07A1A";
+const BRAND_DARK = "#1d1a17";
+
+function BrandStyle() {
+  return (
+    <style>{`
+      .bg-orange-600 { background-color: ${BRAND_ORANGE} !important; }
+      .border-orange-600 { border-color: ${BRAND_ORANGE} !important; }
+      .text-orange-600 { color: #D9620B !important; }
+      .text-orange-700 { color: #B84F06 !important; }
+      .bg-orange-400 { background-color: #F8A055 !important; }
+      .bg-orange-300 { background-color: #F9B67E !important; }
+      .brand-top { background-color: ${BRAND_ORANGE}; }
+      .brand-top .text-orange-600 { color: #fff !important; }
+      .brand-top .bg-orange-600 { background-color: #fff !important; color: ${BRAND_ORANGE} !important; }
+    `}</style>
+  );
+}
+
+function BrandLogo({ size = 40, className = "" }) {
+  return <img src={LOGO_SRC} alt="Clublogo" width={size} height={size} className={`rounded-xl shrink-0 ${className}`} style={{ width: size, height: size }} />;
+}
+
 function getRoles(user) {
   if (!user) return [];
   return user.roles && user.roles.length > 0 ? user.roles : [user.role];
@@ -539,19 +564,23 @@ export default function KrasApp() {
 
   return (
     <div className="h-dvh bg-stone-200 flex justify-center font-sans overflow-hidden">
+      <BrandStyle />
       <div className="w-full max-w-md bg-white h-full flex flex-col relative shadow-xl overflow-hidden">
         {/* Top bar */}
-        <div className="bg-white text-slate-900 px-4 pt-4 pb-3 flex items-center justify-between border-b border-stone-200 shrink-0 z-20">
-          <div>
-            <div className="text-[11px] uppercase tracking-wide text-orange-600 font-bold">
-              KrasApp{myRoles.length > 1 ? ` · ${roleLabelFor(currentUser, role)}` : ""}
+        <div className="brand-top text-white px-4 pt-4 pb-3 flex items-center justify-between shrink-0 z-20">
+          <div className="flex items-center gap-3 min-w-0">
+            <BrandLogo size={40} className="shadow-md ring-2 ring-white/70" />
+            <div className="min-w-0">
+              <div className="text-[11px] uppercase tracking-wide text-white/90 font-bold">
+                KrasApp{myRoles.length > 1 ? ` · ${roleLabelFor(currentUser, role)}` : ""}
+              </div>
+              <div className="text-lg font-extrabold leading-tight text-white truncate">{tabLabel(tabs, tab)}</div>
             </div>
-            <div className="text-lg font-bold leading-tight text-slate-900">{tabLabel(tabs, tab)}</div>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowDemoPanel((v) => !v)}
-              className="bg-orange-50 text-orange-700 text-[10px] font-bold px-2 py-1.5 rounded-full"
+              className="bg-white/25 text-white text-[10px] font-bold px-2 py-1.5 rounded-full"
             >
               Rol wisselen
             </button>
@@ -1057,11 +1086,13 @@ function LoginScreen({ onLogin, onDemoLogin, users }) {
   const [registered, setRegistered] = useState(false);
 
   return (
-    <div className="h-dvh bg-orange-50 flex justify-center overflow-y-auto">
+    <div className="h-dvh flex justify-center overflow-y-auto" style={{ background: `linear-gradient(160deg, #F8A055 0%, ${BRAND_ORANGE} 55%, #D9620B 100%)` }}>
+      <BrandStyle />
       <div className="w-full max-w-sm p-6 py-10">
-        <div className="text-center mb-8">
-          <div className="text-stone-500 text-sm font-semibold tracking-wide uppercase mb-1">Sportclub</div>
-          <div className="text-orange-600 text-4xl font-black">KrasApp</div>
+        <div className="text-center mb-8 flex flex-col items-center">
+          <BrandLogo size={112} className="shadow-xl ring-4 ring-white/80 !rounded-3xl mb-4" />
+          <div className="text-white/90 text-sm font-semibold tracking-wide uppercase mb-1">Sportclub</div>
+          <div className="text-white text-4xl font-black">KrasApp</div>
         </div>
 
         {registered ? (
@@ -1189,10 +1220,11 @@ function HomeScreen({ user, role, players, trainings, users, onOpenPlayer }) {
   const aandacht = players.filter((p) => p.mood <= 2 || p.fatigue <= 2 || p.physicalCondition <= 2);
   return (
     <div className="p-4 space-y-4">
-      <div className="bg-orange-600 text-white rounded-2xl p-4">
-        <div className="text-orange-100 text-xs uppercase font-semibold">Welkom</div>
-        <div className="text-xl font-bold">{user.firstName} {user.lastName}</div>
-        <div className="text-orange-100 text-sm">{roleDisplay(user, role)}</div>
+      <div className="bg-orange-600 text-white rounded-2xl p-4 relative overflow-hidden">
+        <img src={LOGO_SRC} alt="" aria-hidden="true" className="absolute -right-6 -bottom-6 w-32 h-32 rounded-3xl opacity-30 rotate-6" />
+        <div className="text-orange-100 text-xs uppercase font-semibold relative">Welkom</div>
+        <div className="text-xl font-bold relative">{user.firstName} {user.lastName}</div>
+        <div className="text-orange-100 text-sm relative">{roleDisplay(user, role)}</div>
       </div>
 
       <div>
