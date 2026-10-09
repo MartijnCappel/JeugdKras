@@ -435,8 +435,24 @@ export default function KrasApp() {
     setTrainingsState(next);
     if (BACKEND) enqueue(() => persistTrainingDiff(old, next));
   }
-  const [schemas, setSchemas] = useState(BACKEND ? [] : initialSchemas);
-  const [logbook, setLogbook] = useState(BACKEND ? [] : initialLogbook);
+  const [schemas, setSchemasState] = useState(BACKEND ? [] : initialSchemas);
+  const [logbook, setLogbookState] = useState(BACKEND ? [] : initialLogbook);
+  const schemasRef = useRef(schemas);
+  const logbookRef = useRef(logbook);
+  function setSchemas(updater) {
+    const old = schemasRef.current;
+    const next = typeof updater === "function" ? updater(old) : updater;
+    schemasRef.current = next;
+    setSchemasState(next);
+    if (BACKEND) enqueue(() => persistSchemaDiff(old, next));
+  }
+  function setLogbook(updater) {
+    const old = logbookRef.current;
+    const next = typeof updater === "function" ? updater(old) : updater;
+    logbookRef.current = next;
+    setLogbookState(next);
+    if (BACKEND) enqueue(() => persistLogbookDiff(old, next));
+  }
   const [conversations, setConversations] = useState(BACKEND ? [] : initialConversations);
 
   const [currentUserId, setCurrentUserId] = useState(null);
@@ -557,12 +573,132 @@ export default function KrasApp() {
     });
   }
 
+  async function loadSchemas(userId) {
+    const { data, error } = await supabase
+      .from("schemas")
+      .select("*, schema_players(player_id), schema_items(id,position,label,unit,target)")
+      .order("created_at");
+    if (error) { flash("Schema's laden mislukt: " + error.message); return; }
+    const list = (data || []).map((r) => ({
+      id: r.id, name: r.name, type: r.type, description: r.description || "", endDate: r.end_date || "",
+      specialistId: r.specialist_id,
+      playerIds: (r.schema_players || []).map((x) => x.player_id),
+      items: (r.schema_items || []).slice().sort((a, b) => a.position - b.position).map((i) => ({
+        id: i.id, label: i.label, unit: i.unit, target: i.target === "" ? "" : (isNaN(Number(i.target)) ? i.target : Number(i.target)),
+      })),
+    }));
+    schemasRef.current = list;
+    setSchemasState(list);
+    const uid = userId || sessionUserRef.current;
+    if (uid) {
+      const { data: st } = await supabase.from("schema_user_state").select("*").eq("user_id", uid);
+      if (st) setSeenSchemaIds(st.filter((x) => x.seen).map((x) => x.schema_id));
+    }
+  }
+
+  const LOG_KNOWN = ["id", "playerId", "type", "title", "note", "score", "date", "author", "authorId", "schemaId", "trainingId"];
+  async function loadLogbook() {
+    const { data, error } = await supabase.from("logbook").select("*").order("log_date", { ascending: false }).order("created_at", { ascending: false });
+    if (error) { flash("Logboek laden mislukt: " + error.message); return; }
+    const list = (data || []).map((r) => ({
+      ...(r.extra || {}),
+      id: r.id, playerId: r.player_id, type: r.type, title: r.title, note: r.note, score: r.score || undefined,
+      date: r.log_date, author: r.author_name, authorId: r.author_id,
+      schemaId: r.schema_id || undefined, trainingId: r.training_id || undefined,
+    }));
+    logbookRef.current = list;
+    setLogbookState(list);
+  }
+
+  async function persistSchemaDiff(oldList, newList) {
+    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    const fail = (msg, error) => { flash(msg + ": " + error.message); return true; };
+    let failed = false;
+    const oldIds = new Set(oldList.map((x) => x.id));
+    const newIds = new Set(newList.map((x) => x.id));
+    const itemRows = (sc) => (sc.items || []).map((it, i) => ({
+      schema_id: sc.id, id: String(it.id), position: i, label: it.label || "", unit: it.unit || "", target: it.target === undefined || it.target === null ? "" : String(it.target),
+    }));
+    for (const sc of oldList) {
+      if (!newIds.has(sc.id)) {
+        const { error } = await supabase.from("schemas").delete().eq("id", sc.id);
+        if (error) failed = fail("Schema verwijderen mislukt", error);
+      }
+    }
+    for (const sc of newList) {
+      if (!oldIds.has(sc.id)) {
+        const { error } = await supabase.from("schemas").insert({
+          id: sc.id, name: sc.name, type: sc.type || "", description: sc.description || "",
+          end_date: sc.endDate || null, specialist_id: sc.specialistId,
+        });
+        if (error) { failed = fail("Schema opslaan mislukt", error); continue; }
+        if ((sc.playerIds || []).length) {
+          const r = await supabase.from("schema_players").insert(sc.playerIds.map((p) => ({ schema_id: sc.id, player_id: p })));
+          if (r.error) failed = fail("Spelers opslaan mislukt", r.error);
+        }
+        if ((sc.items || []).length) {
+          const r = await supabase.from("schema_items").insert(itemRows(sc));
+          if (r.error) failed = fail("Onderdelen opslaan mislukt", r.error);
+        }
+        continue;
+      }
+      const o = oldList.find((x) => x.id === sc.id);
+      const patch = {};
+      if (sc.name !== o.name) patch.name = sc.name;
+      if (sc.type !== o.type) patch.type = sc.type || "";
+      if (sc.description !== o.description) patch.description = sc.description || "";
+      if (sc.endDate !== o.endDate) patch.end_date = sc.endDate || null;
+      if (Object.keys(patch).length) {
+        const { error } = await supabase.from("schemas").update(patch).eq("id", sc.id);
+        if (error) failed = fail("Schema bijwerken mislukt", error);
+      }
+      const a = o.playerIds || [], b = sc.playerIds || [];
+      const add = b.filter((x) => !a.includes(x)), del = a.filter((x) => !b.includes(x));
+      if (add.length) { const r = await supabase.from("schema_players").insert(add.map((p) => ({ schema_id: sc.id, player_id: p }))); if (r.error) failed = fail("Opslaan mislukt", r.error); }
+      for (const p of del) { const r = await supabase.from("schema_players").delete().eq("schema_id", sc.id).eq("player_id", p); if (r.error) failed = fail("Opslaan mislukt", r.error); }
+      if (!same(sc.items, o.items)) {
+        const d = await supabase.from("schema_items").delete().eq("schema_id", sc.id);
+        if (d.error) failed = fail("Onderdelen bijwerken mislukt", d.error);
+        else if ((sc.items || []).length) {
+          const r = await supabase.from("schema_items").insert(itemRows(sc));
+          if (r.error) failed = fail("Onderdelen bijwerken mislukt", r.error);
+        }
+      }
+    }
+    if (failed) await loadSchemas();
+  }
+
+  async function persistLogbookDiff(oldList, newList) {
+    let failed = false;
+    const oldIds = new Set(oldList.map((x) => x.id));
+    const newIds = new Set(newList.map((x) => x.id));
+    for (const l of oldList) {
+      if (!newIds.has(l.id)) {
+        const { error } = await supabase.from("logbook").delete().eq("id", l.id);
+        if (error) { flash("Logregel verwijderen mislukt: " + error.message); failed = true; }
+      }
+    }
+    for (const l of newList) {
+      if (oldIds.has(l.id)) continue;
+      const extra = Object.fromEntries(Object.entries(l).filter(([k]) => !LOG_KNOWN.includes(k)));
+      const { error } = await supabase.from("logbook").insert({
+        id: l.id, player_id: l.playerId, type: l.type || "overig", title: l.title || "", note: l.note || "",
+        score: l.score || null, log_date: l.date || todayLocalISO(), author_id: l.authorId || sessionUserRef.current,
+        author_name: l.author || "", schema_id: l.schemaId || null, training_id: l.trainingId || null, extra,
+      });
+      if (error) { flash("Logregel opslaan mislukt: " + error.message); failed = true; }
+    }
+    if (failed) await loadLogbook();
+  }
+
   async function loadAll(userId) {
     await loadProfiles();
     await loadNames();
     await loadTeams();
     await loadPlayers();
     await loadTrainings(userId);
+    await loadSchemas(userId);
+    await loadLogbook();
   }
 
   async function persistTrainingDiff(oldList, newList) {
@@ -745,6 +881,8 @@ export default function KrasApp() {
       if (tab === "beheer") loadProfiles();
       loadPlayers();
       loadTrainings();
+      loadSchemas();
+      loadLogbook();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, currentUserId]);
@@ -848,6 +986,9 @@ export default function KrasApp() {
 
   function markSchemaSeen(schemaId) {
     setSeenSchemaIds((s) => (s.includes(schemaId) ? s : [...s, schemaId]));
+    if (BACKEND && currentUser) {
+      supabase.from("schema_user_state").upsert({ user_id: currentUser.id, schema_id: schemaId, seen: true }, { onConflict: "user_id,schema_id" }).then(() => {});
+    }
   }
 
   function markBeheerSeen() {
@@ -1098,7 +1239,7 @@ export default function KrasApp() {
               viewerRole={role}
               onBack={() => setDetailPlayerId(null)}
               onAddLog={(entry) => {
-                setLogbook((lb) => [{ ...entry, id: "l" + Date.now(), playerId: detailPlayerId, author: `${currentUser.firstName} ${currentUser.lastName}` }, ...lb]);
+                setLogbook((lb) => [{ ...entry, id: newId("l"), authorId: currentUser.id, playerId: detailPlayerId, author: `${currentUser.firstName} ${currentUser.lastName}` }, ...lb]);
                 flash("Logboekregel toegevoegd");
               }}
               onToggleCoach={(staffId) => {
@@ -1224,7 +1365,7 @@ export default function KrasApp() {
               players={players}
               onOpen={(id) => setDetailSchemaId(id)}
               onCreate={(s) => {
-                setSchemas((ss) => [...ss, { ...s, id: "s" + Date.now(), specialistId: currentUser.id }]);
+                setSchemas((ss) => [...ss, { ...s, id: newId("s"), specialistId: currentUser.id }]);
                 flash("Schema aangemaakt");
               }}
             />
@@ -1267,7 +1408,8 @@ export default function KrasApp() {
                 const myPlayer = players.find((p) => p.userId === currentUser.id);
                 setLogbook((lb) => [
                   {
-                    id: "l" + Date.now(),
+                    id: newId("l"),
+                    authorId: currentUser.id,
                     playerId: myPlayer.id,
                     type: "schema",
                     title,
@@ -1312,7 +1454,8 @@ export default function KrasApp() {
                 const myPlayer = players.find((p) => p.userId === currentUser.id);
                 setLogbook((lb) => [
                   {
-                    id: "l" + Date.now(),
+                    id: newId("l"),
+                    authorId: currentUser.id,
                     playerId: myPlayer.id,
                     type: "training",
                     title: `${t.name} ${TRAINING_FEEL_SCALE.find((s) => s.v === mood)?.emoji}`,
