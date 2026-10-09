@@ -414,10 +414,27 @@ export default function KrasApp() {
     const next = typeof updater === "function" ? updater(old) : updater;
     playersRef.current = next;
     setPlayersState(next);
-    if (BACKEND) persistPlayerDiff(old, next);
+    if (BACKEND) enqueue(() => persistPlayerDiff(old, next));
   }
   const [teams, setTeams] = useState(BACKEND ? [] : initialTeams);
-  const [trainings, setTrainings] = useState(BACKEND ? [] : initialTrainings);
+  const [trainings, setTrainingsState] = useState(BACKEND ? [] : initialTrainings);
+  const trainingsRef = useRef(trainings);
+  const queueRef = useRef(Promise.resolve());
+  // Schrijfacties naar de database lopen na elkaar, zodat ze elkaar niet voorbijlopen.
+  function enqueue(fn) {
+    queueRef.current = queueRef.current.then(fn).catch(() => {});
+    return queueRef.current;
+  }
+  function newId(prefix) {
+    return BACKEND ? crypto.randomUUID() : prefix + Date.now();
+  }
+  function setTrainings(updater) {
+    const old = trainingsRef.current;
+    const next = typeof updater === "function" ? updater(old) : updater;
+    trainingsRef.current = next;
+    setTrainingsState(next);
+    if (BACKEND) enqueue(() => persistTrainingDiff(old, next));
+  }
   const [schemas, setSchemas] = useState(BACKEND ? [] : initialSchemas);
   const [logbook, setLogbook] = useState(BACKEND ? [] : initialLogbook);
   const [conversations, setConversations] = useState(BACKEND ? [] : initialConversations);
@@ -499,10 +516,123 @@ export default function KrasApp() {
     setPlayersState(list);
   }
 
-  async function loadAll() {
+  async function loadTrainings(userId) {
+    const { data, error } = await supabase
+      .from("trainings")
+      .select("*, training_trainers(staff_id), training_players(player_id), training_attendance(player_id,status), training_messages(sender_id,text,created_at)")
+      .order("date")
+      .order("time");
+    if (error) { flash("Trainingen laden mislukt: " + error.message); return; }
+    const list = (data || []).map((r) => ({
+      id: r.id, name: r.name, type: r.type, location: r.location, date: r.date, time: r.time,
+      duration: r.duration, notes: r.notes || "", seriesId: r.series_id, cancelled: r.cancelled || undefined,
+      createdBy: r.created_by, createdAt: r.created_at,
+      trainerIds: (r.training_trainers || []).map((x) => x.staff_id),
+      playerIds: (r.training_players || []).map((x) => x.player_id),
+      attendance: Object.fromEntries((r.training_attendance || []).map((x) => [x.player_id, x.status])),
+      chat: (r.training_messages || []).slice().sort((a, b) => a.created_at.localeCompare(b.created_at)).map((m) => ({ from: m.sender_id, text: m.text })),
+    }));
+    trainingsRef.current = list;
+    setTrainingsState(list);
+    const uid = userId || sessionUserRef.current;
+    if (uid) {
+      const { data: st } = await supabase.from("training_user_state").select("*").eq("user_id", uid);
+      if (st) {
+        setChatReadCounts(Object.fromEntries(st.map((x) => [x.training_id, x.chat_read])));
+        setSeenTrainingIds((s) => ({ ...s, [uid]: st.filter((x) => x.seen).map((x) => x.training_id) }));
+      }
+    }
+  }
+
+  async function loadNames() {
+    // Namen van mensen met wie je een training deelt, voor de chat (ook voor spelers).
+    const { data } = await supabase.rpc("profile_names");
+    if (!data) return;
+    setUsers((us) => {
+      const known = new Set(us.map((u) => u.id));
+      const extra = data.filter((n) => !known.has(n.id)).map((n) => ({
+        id: n.id, email: "", firstName: n.first_name, lastName: n.last_name, role: "speler", roles: ["speler"], status: "actief",
+      }));
+      return extra.length ? [...us, ...extra] : us;
+    });
+  }
+
+  async function loadAll(userId) {
     await loadProfiles();
+    await loadNames();
     await loadTeams();
     await loadPlayers();
+    await loadTrainings(userId);
+  }
+
+  async function persistTrainingDiff(oldList, newList) {
+    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    const err = (msg, error) => { flash(msg + ": " + error.message); return true; };
+    let failed = false;
+    const oldIds = new Set(oldList.map((t) => t.id));
+    const newIds = new Set(newList.map((t) => t.id));
+    for (const t of oldList) {
+      if (!newIds.has(t.id)) {
+        const { error } = await supabase.from("trainings").delete().eq("id", t.id);
+        if (error) failed = err("Verwijderen mislukt", error);
+      }
+    }
+    for (const t of newList) {
+      if (!oldIds.has(t.id)) {
+        const { error } = await supabase.from("trainings").insert({
+          id: t.id, name: t.name, type: t.type, location: t.location || "", date: t.date, time: t.time,
+          duration: t.duration, notes: t.notes || "", series_id: t.seriesId || null, cancelled: !!t.cancelled, created_by: t.createdBy || null,
+        });
+        if (error) { failed = err("Training opslaan mislukt", error); continue; }
+        if ((t.trainerIds || []).length) {
+          const r = await supabase.from("training_trainers").insert(t.trainerIds.map((s) => ({ training_id: t.id, staff_id: s })));
+          if (r.error) failed = err("Trainers opslaan mislukt", r.error);
+        }
+        if ((t.playerIds || []).length) {
+          const r = await supabase.from("training_players").insert(t.playerIds.map((p) => ({ training_id: t.id, player_id: p })));
+          if (r.error) failed = err("Spelers opslaan mislukt", r.error);
+        }
+        const att = Object.entries(t.attendance || {});
+        if (att.length) {
+          const r = await supabase.from("training_attendance").insert(att.map(([p, status]) => ({ training_id: t.id, player_id: p, status })));
+          if (r.error) failed = err("Aanwezigheid opslaan mislukt", r.error);
+        }
+        if ((t.chat || []).length) {
+          const r = await supabase.from("training_messages").insert(t.chat.map((m) => ({ training_id: t.id, sender_id: m.from, text: m.text })));
+          if (r.error) failed = err("Bericht opslaan mislukt", r.error);
+        }
+        continue;
+      }
+      const o = oldList.find((x) => x.id === t.id);
+      const patch = {};
+      for (const [k, col] of [["name", "name"], ["type", "type"], ["location", "location"], ["date", "date"], ["time", "time"], ["duration", "duration"], ["notes", "notes"]]) {
+        if (t[k] !== o[k]) patch[col] = t[k];
+      }
+      if (!!t.cancelled !== !!o.cancelled) patch.cancelled = !!t.cancelled;
+      if (Object.keys(patch).length) {
+        const { error } = await supabase.from("trainings").update(patch).eq("id", t.id);
+        if (error) failed = err("Training bijwerken mislukt", error);
+      }
+      for (const [key, table, col] of [["trainerIds", "training_trainers", "staff_id"], ["playerIds", "training_players", "player_id"]]) {
+        const a = o[key] || [], b = t[key] || [];
+        const add = b.filter((x) => !a.includes(x)), del = a.filter((x) => !b.includes(x));
+        if (add.length) { const r = await supabase.from(table).insert(add.map((x) => ({ training_id: t.id, [col]: x }))); if (r.error) failed = err("Opslaan mislukt", r.error); }
+        for (const x of del) { const r = await supabase.from(table).delete().eq("training_id", t.id).eq(col, x); if (r.error) failed = err("Opslaan mislukt", r.error); }
+      }
+      if (!same(t.attendance || {}, o.attendance || {})) {
+        const rows = Object.entries(t.attendance || {}).filter(([p, st]) => (o.attendance || {})[p] !== st).map(([p, status]) => ({ training_id: t.id, player_id: p, status }));
+        if (rows.length) {
+          const r = await supabase.from("training_attendance").upsert(rows, { onConflict: "training_id,player_id" });
+          if (r.error) failed = err("Aanwezigheid opslaan mislukt", r.error);
+        }
+      }
+      const oc = (o.chat || []).length;
+      if ((t.chat || []).length > oc) {
+        const r = await supabase.from("training_messages").insert(t.chat.slice(oc).map((m) => ({ training_id: t.id, sender_id: m.from, text: m.text })));
+        if (r.error) failed = err("Bericht versturen mislukt", r.error);
+      }
+    }
+    if (failed) await loadTrainings();
   }
 
   async function persistPlayerDiff(oldList, newList) {
@@ -590,7 +720,7 @@ export default function KrasApp() {
     }
     setAuthNotice("");
     sessionUserRef.current = session.user.id;
-    await loadAll();
+    await loadAll(me.id);
     const first = mapProfile(me).roles[0];
     setCurrentUserId(me.id);
     setActiveRole(first);
@@ -614,9 +744,25 @@ export default function KrasApp() {
     if (BACKEND && currentUserId) {
       if (tab === "beheer") loadProfiles();
       loadPlayers();
+      loadTrainings();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, currentUserId]);
+
+  useEffect(() => {
+    if (!BACKEND || !currentUserId) return undefined;
+    let timer = null;
+    const refresh = () => { clearTimeout(timer); timer = setTimeout(() => { loadTrainings(); }, 400); };
+    const channel = supabase
+      .channel("trainingen-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "training_messages" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "training_attendance" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "trainings" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "training_players" }, refresh)
+      .subscribe();
+    return () => { clearTimeout(timer); supabase.removeChannel(channel); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUserId]);
 
   async function dbUpdateProfile(id, patch, okMsg) {
     const { error } = await supabase.from("profiles").update(patch).eq("id", id);
@@ -671,6 +817,9 @@ export default function KrasApp() {
     const t = trainings.find((x) => x.id === trainingId);
     if (!t) return;
     setChatReadCounts((c) => ({ ...c, [trainingId]: (t.chat || []).length }));
+    if (BACKEND && currentUser) {
+      supabase.from("training_user_state").upsert({ user_id: currentUser.id, training_id: trainingId, chat_read: (t.chat || []).length }, { onConflict: "user_id,training_id" }).then(() => {});
+    }
   }
 
   function markConversationRead(convoId) {
@@ -685,6 +834,9 @@ export default function KrasApp() {
     if (!t) return;
     const ids = t.seriesId ? trainings.filter((x) => x.seriesId === t.seriesId).map((x) => x.id) : [t.id];
     setSeenTrainingIds((s) => ({ ...s, [currentUser.id]: Array.from(new Set([...(s[currentUser.id] || []), ...ids])) }));
+    if (BACKEND) {
+      supabase.from("training_user_state").upsert(ids.map((id) => ({ user_id: currentUser.id, training_id: id, seen: true })), { onConflict: "user_id,training_id" }).then(() => {});
+    }
   }
 
   function markPlayerAlertsSeen(playerId) {
@@ -1004,11 +1156,11 @@ export default function KrasApp() {
               onCreate={(t) => {
                 const { recurrence, weeks, ...base } = t;
                 const count = recurrence === "wekelijks" ? Math.max(2, weeks || 2) : 1;
-                const seriesId = recurrence === "wekelijks" ? "series" + Date.now() : null;
+                const seriesId = recurrence === "wekelijks" ? newId("series") : null;
                 const newOnes = [...Array(count)].map((_, i) => {
                   const d = new Date(base.date + "T00:00:00");
                   d.setDate(d.getDate() + i * 7);
-                  return { ...base, id: "t" + Date.now() + "_" + i, date: toISODateLocal(d), attendance: {}, chat: [], seriesId, createdBy: currentUser.id };
+                  return { ...base, id: newId("t") + (BACKEND ? "" : "_" + i), date: toISODateLocal(d), attendance: {}, chat: [], seriesId, createdBy: currentUser.id };
                 });
                 setTrainings((ts) => [...ts, ...newOnes]);
                 flash(count > 1 ? `${count} wekelijkse trainingen aangemaakt` : "Training aangemaakt");
@@ -2300,6 +2452,7 @@ const INITIAL_TRAINING_IDS = new Set(initialTrainings.map((t) => t.id));
 function isNewTrainingFor(training, userId, players, seenTrainingIds) {
   if (INITIAL_TRAINING_IDS.has(training.id)) return false;
   if (training.createdBy === userId) return false;
+  if (BACKEND && training.date < todayLocalISO()) return false;
   if (!isInvolvedInTraining(training, userId, players)) return false;
   return !(seenTrainingIds[userId] || []).includes(training.id);
 }
