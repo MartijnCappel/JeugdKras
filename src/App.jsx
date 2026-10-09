@@ -405,7 +405,17 @@ function canMessage(a, b, players) {
 
 export default function KrasApp() {
   const [users, setUsers] = useState(BACKEND ? [] : initialUsers);
-  const [players, setPlayers] = useState(BACKEND ? [] : initialPlayers);
+  const [players, setPlayersState] = useState(BACKEND ? [] : initialPlayers);
+  const playersRef = useRef(players);
+  const teamIdsRef = useRef({});
+  // In de echte app worden wijzigingen aan spelers automatisch naar de database geschreven.
+  function setPlayers(updater) {
+    const old = playersRef.current;
+    const next = typeof updater === "function" ? updater(old) : updater;
+    playersRef.current = next;
+    setPlayersState(next);
+    if (BACKEND) persistPlayerDiff(old, next);
+  }
   const [teams, setTeams] = useState(BACKEND ? [] : initialTeams);
   const [trainings, setTrainings] = useState(BACKEND ? [] : initialTrainings);
   const [schemas, setSchemas] = useState(BACKEND ? [] : initialSchemas);
@@ -460,6 +470,96 @@ export default function KrasApp() {
     return list;
   }
 
+  async function loadTeams() {
+    const { data, error } = await supabase.from("teams").select("*").order("name");
+    if (error) { flash("Teams laden mislukt: " + error.message); return; }
+    teamIdsRef.current = Object.fromEntries((data || []).map((t) => [t.name, t.id]));
+    setTeams((data || []).map((t) => t.name));
+  }
+
+  async function loadPlayers() {
+    const { data, error } = await supabase
+      .from("players")
+      .select("*, profile:user_id(first_name,last_name,city,dob), player_teams(teams(name)), player_coaches(staff_id)")
+      .order("created_at");
+    if (error) { flash("Spelers laden mislukt: " + error.message); return; }
+    const list = (data || []).map((r) => ({
+      id: r.id,
+      userId: r.user_id,
+      name: r.profile ? `${r.profile.first_name} ${r.profile.last_name}`.trim() : "Onbekend",
+      city: (r.profile && r.profile.city) || "",
+      dob: (r.profile && r.profile.dob) || null,
+      positions: r.positions || [],
+      teams: (r.player_teams || []).map((x) => x.teams && x.teams.name).filter(Boolean),
+      coachIds: (r.player_coaches || []).map((x) => x.staff_id),
+      mood: r.mood, fatigue: r.fatigue, physicalCondition: r.physical_condition,
+      modules: r.modules || [], weekProgram: r.week_program || [], tvs: r.tvs || {},
+    }));
+    playersRef.current = list;
+    setPlayersState(list);
+  }
+
+  async function loadAll() {
+    await loadProfiles();
+    await loadTeams();
+    await loadPlayers();
+  }
+
+  async function persistPlayerDiff(oldList, newList) {
+    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    let failed = false;
+    for (const p of newList) {
+      const o = oldList.find((x) => x.id === p.id);
+      if (!o) continue;
+      const patch = {};
+      if (!same(p.positions, o.positions)) patch.positions = p.positions;
+      if (p.mood !== o.mood) patch.mood = p.mood;
+      if (p.fatigue !== o.fatigue) patch.fatigue = p.fatigue;
+      if (p.physicalCondition !== o.physicalCondition) patch.physical_condition = p.physicalCondition;
+      if (!same(p.modules || [], o.modules || [])) patch.modules = p.modules || [];
+      if (!same(p.weekProgram || [], o.weekProgram || [])) patch.week_program = p.weekProgram || [];
+      if (!same(p.tvs || {}, o.tvs || {})) patch.tvs = p.tvs || {};
+      if (Object.keys(patch).length) {
+        const { error } = await supabase.from("players").update(patch).eq("id", p.id);
+        if (error) { flash("Opslaan mislukt: " + error.message); failed = true; }
+      }
+      const oc = o.coachIds || [], nc = p.coachIds || [];
+      for (const sid of nc.filter((x) => !oc.includes(x))) {
+        const { error } = await supabase.from("player_coaches").insert({ player_id: p.id, staff_id: sid });
+        if (error) { flash("Koppelen mislukt: " + error.message); failed = true; }
+      }
+      for (const sid of oc.filter((x) => !nc.includes(x))) {
+        const { error } = await supabase.from("player_coaches").delete().eq("player_id", p.id).eq("staff_id", sid);
+        if (error) { flash("Ontkoppelen mislukt: " + error.message); failed = true; }
+      }
+      const ot = o.teams || [], nt = p.teams || [];
+      for (const t of nt.filter((x) => !ot.includes(x))) {
+        const { error } = await supabase.from("player_teams").insert({ player_id: p.id, team_id: teamIdsRef.current[t] });
+        if (error) { flash("Team toevoegen mislukt: " + error.message); failed = true; }
+      }
+      for (const t of ot.filter((x) => !nt.includes(x))) {
+        const { error } = await supabase.from("player_teams").delete().eq("player_id", p.id).eq("team_id", teamIdsRef.current[t]);
+        if (error) { flash("Team verwijderen mislukt: " + error.message); failed = true; }
+      }
+    }
+    if (failed) await loadPlayers();
+  }
+
+  async function addTeamDb(name, playerId) {
+    const n = name.trim();
+    if (!n) return;
+    const existing = Object.keys(teamIdsRef.current).find((t) => t.toLowerCase() === n.toLowerCase());
+    let finalName = existing;
+    if (!existing) {
+      const { data, error } = await supabase.from("teams").insert({ name: n }).select().single();
+      if (error) { flash("Team aanmaken mislukt: " + error.message); return; }
+      teamIdsRef.current[data.name] = data.id;
+      setTeams((ts) => [...ts, data.name].sort());
+      finalName = data.name;
+    }
+    setPlayers((ps) => ps.map((p) => (p.id === playerId && !(p.teams || []).includes(finalName) ? { ...p, teams: [...(p.teams || []), finalName] } : p)));
+  }
+
   async function handleSession(session) {
     if (!session) {
       sessionUserRef.current = null;
@@ -490,7 +590,7 @@ export default function KrasApp() {
     }
     setAuthNotice("");
     sessionUserRef.current = session.user.id;
-    await loadProfiles();
+    await loadAll();
     const first = mapProfile(me).roles[0];
     setCurrentUserId(me.id);
     setActiveRole(first);
@@ -511,7 +611,10 @@ export default function KrasApp() {
   }, []);
 
   useEffect(() => {
-    if (BACKEND && currentUserId && tab === "beheer") loadProfiles();
+    if (BACKEND && currentUserId) {
+      if (tab === "beheer") loadProfiles();
+      loadPlayers();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, currentUserId]);
 
@@ -827,6 +930,7 @@ export default function KrasApp() {
                 );
               }}
               onAddTeam={(name) => {
+                if (BACKEND) { addTeamDb(name, detailPlayerId); return; }
                 const n = name.trim();
                 if (!n) return;
                 const existing = teams.find((t) => t.toLowerCase() === n.toLowerCase());
@@ -1799,7 +1903,7 @@ function SpelerDetailScreen({ player, users, teams = [], onToggleTeam, onAddTeam
           <div className="text-xl font-bold text-slate-900">{player.name}</div>
           {canEdit && <button className="text-xs text-orange-600 font-semibold">Bewerken</button>}
         </div>
-        <div className="text-sm text-stone-500 mb-2">{player.city} · {new Date(player.dob).toLocaleDateString("nl-NL")}</div>
+        <div className="text-sm text-stone-500 mb-2">{player.city}{player.city && player.dob ? " · " : ""}{player.dob ? new Date(player.dob).toLocaleDateString("nl-NL") : ""}</div>
 
         <div className="mb-3">
           <div className="text-[10px] uppercase font-semibold text-stone-400 mb-1">Positie(s)</div>
