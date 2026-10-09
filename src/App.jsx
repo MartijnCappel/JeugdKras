@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
+import { supabase, BACKEND } from "./supabaseClient";
 import {
   Home, Users, Calendar, MessageSquare, MoreHorizontal, Shield,
   ClipboardList, TrendingUp, LogOut, Send, Check, X, Plus,
@@ -403,13 +404,13 @@ function canMessage(a, b, players) {
 // ---------------------------------------------------------------------------
 
 export default function KrasApp() {
-  const [users, setUsers] = useState(initialUsers);
-  const [players, setPlayers] = useState(initialPlayers);
-  const [teams, setTeams] = useState(initialTeams);
-  const [trainings, setTrainings] = useState(initialTrainings);
-  const [schemas, setSchemas] = useState(initialSchemas);
-  const [logbook, setLogbook] = useState(initialLogbook);
-  const [conversations, setConversations] = useState(initialConversations);
+  const [users, setUsers] = useState(BACKEND ? [] : initialUsers);
+  const [players, setPlayers] = useState(BACKEND ? [] : initialPlayers);
+  const [teams, setTeams] = useState(BACKEND ? [] : initialTeams);
+  const [trainings, setTrainings] = useState(BACKEND ? [] : initialTrainings);
+  const [schemas, setSchemas] = useState(BACKEND ? [] : initialSchemas);
+  const [logbook, setLogbook] = useState(BACKEND ? [] : initialLogbook);
+  const [conversations, setConversations] = useState(BACKEND ? [] : initialConversations);
 
   const [currentUserId, setCurrentUserId] = useState(null);
   const [tab, setTab] = useState("home");
@@ -435,6 +436,119 @@ export default function KrasApp() {
   const currentUser = users.find((u) => u.id === currentUserId) || null;
   const myRoles = getRoles(currentUser);
   const role = currentUser ? (myRoles.includes(activeRole) ? activeRole : myRoles[0]) : undefined;
+
+  // --- Echte app (Supabase): inloggen, profielen en beheer ------------------
+  const [authReady, setAuthReady] = useState(!BACKEND);
+  const [authNotice, setAuthNotice] = useState("");
+  const [recovery, setRecovery] = useState(false);
+  const sessionUserRef = useRef(null);
+
+  function mapProfile(r) {
+    const roles = sortRoles(r.roles && r.roles.length ? r.roles : ["speler"]);
+    return {
+      id: r.id, email: r.email, firstName: r.first_name, lastName: r.last_name,
+      city: r.city, dob: r.dob, title: r.title || undefined,
+      role: roles[0], roles, status: r.status,
+    };
+  }
+
+  async function loadProfiles() {
+    const { data, error } = await supabase.from("profiles").select("*").order("created_at");
+    if (error) { flash("Laden mislukt: " + error.message); return []; }
+    const list = (data || []).map(mapProfile);
+    setUsers(list);
+    return list;
+  }
+
+  async function handleSession(session) {
+    if (!session) {
+      sessionUserRef.current = null;
+      setCurrentUserId(null);
+      setActiveRole(null);
+      setAuthReady(true);
+      return;
+    }
+    if (sessionUserRef.current === session.user.id) { setAuthReady(true); return; }
+    const { data: me, error } = await supabase.from("profiles").select("*").eq("id", session.user.id).maybeSingle();
+    if (error || !me) {
+      setAuthNotice("Je profiel kon niet worden geladen. Probeer het later opnieuw.");
+      await supabase.auth.signOut();
+      setAuthReady(true);
+      return;
+    }
+    if (me.status === "in afwachting") {
+      setAuthNotice("Je account wacht nog op goedkeuring door een coördinator.");
+      await supabase.auth.signOut();
+      setAuthReady(true);
+      return;
+    }
+    if (me.status === "geblokkeerd") {
+      setAuthNotice("Dit account is geblokkeerd. Neem contact op met de coördinator.");
+      await supabase.auth.signOut();
+      setAuthReady(true);
+      return;
+    }
+    setAuthNotice("");
+    sessionUserRef.current = session.user.id;
+    await loadProfiles();
+    const first = mapProfile(me).roles[0];
+    setCurrentUserId(me.id);
+    setActiveRole(first);
+    setTab(TABS[first][0].key);
+    setAuthReady(true);
+  }
+
+  useEffect(() => {
+    if (!BACKEND) return undefined;
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "TOKEN_REFRESHED" || event === "USER_UPDATED") return;
+      if (event === "PASSWORD_RECOVERY") { setRecovery(true); return; }
+      // Niet binnen deze callback op Supabase wachten (kan vastlopen), dus uitstellen.
+      setTimeout(() => handleSession(session), 0);
+    });
+    return () => data.subscription.unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (BACKEND && currentUserId && tab === "beheer") loadProfiles();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, currentUserId]);
+
+  async function dbUpdateProfile(id, patch, okMsg) {
+    const { error } = await supabase.from("profiles").update(patch).eq("id", id);
+    if (error) flash("Opslaan mislukt: " + error.message);
+    else if (okMsg) flash(okMsg);
+    await loadProfiles();
+  }
+
+  async function dbDeleteUser(id, okMsg) {
+    const { error } = await supabase.rpc("admin_delete_user", { target: id });
+    if (error) flash("Verwijderen mislukt: " + error.message);
+    else flash(okMsg);
+    await loadProfiles();
+  }
+
+  async function register(form) {
+    if (!BACKEND) return null;
+    const { error } = await supabase.auth.signUp({
+      email: form.email.trim(),
+      password: form.password,
+      options: { data: { first_name: form.firstName.trim(), last_name: form.lastName.trim(), city: form.city.trim(), dob: form.dob } },
+    });
+    if (error) {
+      if (/registered|already/i.test(error.message)) return "Dit e-mailadres heeft al een account.";
+      return "Registreren mislukt: " + error.message;
+    }
+    return null;
+  }
+
+  async function forgotPassword(email) {
+    if (!BACKEND) return "Alleen beschikbaar in de echte app.";
+    if (!email.trim()) return "Vul eerst je e-mailadres in.";
+    await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.origin + window.location.pathname });
+    return "Als dit e-mailadres bekend is, is er een e-mail verstuurd met een link om je wachtwoord te wijzigen.";
+  }
 
   function resetDetails() {
     setDetailPlayerId(null);
@@ -492,7 +606,12 @@ export default function KrasApp() {
     return (seenConversationCounts[convo.id] || 0) < convo.messages.length;
   }
 
-  function login(email, password) {
+  async function login(email, password) {
+    if (BACKEND) {
+      setAuthNotice("");
+      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      return error ? "E-mailadres of wachtwoord onjuist" : null;
+    }
     const u = users.find((x) => x.email === email);
     if (!u) return "E-mailadres of wachtwoord onjuist";
     if (password !== "demo123") return "E-mailadres of wachtwoord onjuist";
@@ -506,6 +625,8 @@ export default function KrasApp() {
   }
 
   function logout() {
+    if (BACKEND) supabase.auth.signOut();
+    sessionUserRef.current = null;
     setCurrentUserId(null);
     setActiveRole(null);
     setDetailPlayerId(null);
@@ -519,10 +640,27 @@ export default function KrasApp() {
     setTimeout(() => setToast(""), 2200);
   }
 
+  if (BACKEND && recovery) {
+    return <NewPasswordScreen onDone={() => { setRecovery(false); }} />;
+  }
+
+  if (BACKEND && !authReady) {
+    return (
+      <div className="h-dvh flex items-center justify-center" style={{ background: BRAND_ORANGE }}>
+        <BrandStyle />
+        <div className="bg-white rounded-3xl shadow-xl px-6 py-4"><BrandLogo height={72} /></div>
+      </div>
+    );
+  }
+
   if (!currentUser) {
     return (
       <LoginScreen
         onLogin={login}
+        onRegister={register}
+        onForgot={forgotPassword}
+        notice={authNotice}
+        showDemo={!BACKEND}
         onDemoLogin={(id, r) => {
           setCurrentUserId(id);
           setActiveRole(r);
@@ -535,6 +673,9 @@ export default function KrasApp() {
 
   const tabs = TABS[role];
   const myPlayer = players.find((p) => p.userId === currentUser.id);
+  if (BACKEND && role === "speler" && !myPlayer) {
+    return <WaitingProfileScreen user={currentUser} onLogout={logout} />;
+  }
   const berichtenUnread = conversations.some((c) => c.participantIds.includes(currentUser.id) && conversationHasUnread(c));
   const trainingenUnread = trainings.some(
     (t) =>
@@ -620,21 +761,26 @@ export default function KrasApp() {
               currentUserId={currentUser.id}
               onApprove={(id, newRoles) => {
                 const roles = sortRoles(newRoles);
+                if (BACKEND) { dbUpdateProfile(id, { roles, status: "actief" }, "Account goedgekeurd"); return; }
                 setUsers((us) => us.map((u) => (u.id === id ? { ...u, role: roles[0], roles, status: "actief" } : u)));
                 flash("Account goedgekeurd");
               }}
               onReject={(id) => {
+                if (BACKEND) { dbDeleteUser(id, "Account afgewezen en verwijderd"); return; }
                 setUsers((us) => us.filter((u) => u.id !== id));
                 flash("Account afgewezen en verwijderd");
               }}
               onChangeStatus={(id, status) => {
+                if (BACKEND) { dbUpdateProfile(id, { status }); return; }
                 setUsers((us) => us.map((u) => (u.id === id ? { ...u, status } : u)));
               }}
               onChangeRole={(id, newRoles) => {
                 const roles = sortRoles(newRoles);
+                if (BACKEND) { dbUpdateProfile(id, { roles }); return; }
                 setUsers((us) => us.map((u) => (u.id === id ? { ...u, role: roles[0], roles } : u)));
               }}
               onDelete={(id) => {
+                if (BACKEND) { dbDeleteUser(id, "Gebruiker verwijderd"); return; }
                 setUsers((us) => us.filter((u) => u.id !== id));
                 flash("Gebruiker verwijderd");
               }}
@@ -999,6 +1145,7 @@ export default function KrasApp() {
               onOpenPlayerNamesOnly={role === "speler"}
               players={players}
               onUpdateTitle={(title) => {
+                if (BACKEND) { dbUpdateProfile(currentUser.id, { title }, "Titel bijgewerkt"); return; }
                 setUsers((us) => us.map((u) => (u.id === currentUser.id ? { ...u, title } : u)));
                 flash("Titel bijgewerkt");
               }}
@@ -1066,8 +1213,8 @@ export default function KrasApp() {
                   })}
                 </div>
               )}
-              <div className="font-bold text-slate-900 mb-2">Test als rol</div>
-              {Object.entries(ROLE_LABEL).map(([r, label]) => {
+              {!BACKEND && <div className="font-bold text-slate-900 mb-2">Test als rol</div>}
+              {!BACKEND && Object.entries(ROLE_LABEL).map(([r, label]) => {
                 const u = users.find((x) => hasRole(x, r) && x.status === "actief");
                 if (!u) return null;
                 return (
@@ -1103,12 +1250,13 @@ function tabLabel(tabs, key) {
 // Login
 // ---------------------------------------------------------------------------
 
-function LoginScreen({ onLogin, onDemoLogin, users }) {
+function LoginScreen({ onLogin, onDemoLogin, onRegister, onForgot, notice, showDemo = true, users }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [showRegister, setShowRegister] = useState(false);
   const [registered, setRegistered] = useState(false);
+  const [info, setInfo] = useState("");
 
   return (
     <div className="h-dvh flex justify-center overflow-y-auto" style={{ background: `linear-gradient(160deg, #F8A055 0%, ${BRAND_ORANGE} 55%, #D9620B 100%)` }}>
@@ -1125,6 +1273,7 @@ function LoginScreen({ onLogin, onDemoLogin, users }) {
             <div className="font-bold text-slate-900 mb-2">Account aangemaakt</div>
             <p className="text-sm text-stone-600 mb-4">
               Je account wacht op goedkeuring door een coördinator voordat je kunt inloggen.
+              {!showDemo && " Heb je een e-mail ontvangen om je adres te bevestigen? Doe dat dan eerst."}
             </p>
             <button onClick={() => { setRegistered(false); setShowRegister(false); }} className="text-orange-600 font-semibold text-sm">
               Terug naar inloggen
@@ -1133,7 +1282,11 @@ function LoginScreen({ onLogin, onDemoLogin, users }) {
         ) : showRegister ? (
           <RegisterForm
             onCancel={() => setShowRegister(false)}
-            onSubmit={() => setRegistered(true)}
+            onSubmit={async (form) => {
+              const err = onRegister ? await onRegister(form) : null;
+              if (!err) setRegistered(true);
+              return err;
+            }}
           />
         ) : (
           <div className="bg-white rounded-2xl p-6">
@@ -1142,7 +1295,7 @@ function LoginScreen({ onLogin, onDemoLogin, users }) {
               className="w-full border border-stone-300 rounded-lg px-3 py-2 mt-1 mb-3 text-sm"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="naam@kras.nl"
+              placeholder={showDemo ? "naam@kras.nl" : "E-mailadres"}
             />
             <label className="text-xs font-semibold text-stone-500 uppercase">Wachtwoord</label>
             <input
@@ -1150,16 +1303,27 @@ function LoginScreen({ onLogin, onDemoLogin, users }) {
               className="w-full border border-stone-300 rounded-lg px-3 py-2 mt-1 mb-1 text-sm"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="demo123"
+              placeholder={showDemo ? "demo123" : "Wachtwoord"}
             />
-            <button className="text-xs text-orange-600 font-semibold mb-3">Wachtwoord vergeten?</button>
+            <button
+              onClick={async () => { if (onForgot) { setError(""); setInfo(await onForgot(email)); } }}
+              className="text-xs text-orange-600 font-semibold mb-3"
+            >
+              Wachtwoord vergeten?
+            </button>
+            {info && <div className="text-xs text-stone-600 mb-3">{info}</div>}
+            {notice && !error && (
+              <div className="text-rose-600 text-xs mb-3 flex items-center gap-1">
+                <AlertCircle size={14} /> {notice}
+              </div>
+            )}
             {error && (
               <div className="text-rose-600 text-xs mb-3 flex items-center gap-1">
                 <AlertCircle size={14} /> {error}
               </div>
             )}
             <button
-              onClick={() => setError(onLogin(email, password))}
+              onClick={async () => { setInfo(""); setError((await onLogin(email, password)) || ""); }}
               className="w-full bg-orange-600 text-white font-bold py-2.5 rounded-lg mb-3"
             >
               Inloggen
@@ -1168,7 +1332,7 @@ function LoginScreen({ onLogin, onDemoLogin, users }) {
               Nog geen account? <span className="text-orange-600 font-semibold">Registreren</span>
             </button>
 
-            <div className="mt-6 pt-4 border-t border-stone-200">
+            {showDemo && <div className="mt-6 pt-4 border-t border-stone-200">
               <div className="text-[11px] uppercase tracking-wide text-stone-400 font-semibold mb-2">
                 Demo-accounts (testen zonder inloggen)
               </div>
@@ -1187,7 +1351,7 @@ function LoginScreen({ onLogin, onDemoLogin, users }) {
                   );
                 })}
               </div>
-            </div>
+            </div>}
           </div>
         )}
       </div>
@@ -1196,6 +1360,7 @@ function LoginScreen({ onLogin, onDemoLogin, users }) {
 }
 
 function RegisterForm({ onCancel, onSubmit }) {
+  const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({ firstName: "", lastName: "", city: "", dob: "", email: "", password: "", password2: "" });
   const [error, setError] = useState("");
   return (
@@ -1215,11 +1380,17 @@ function RegisterForm({ onCancel, onSubmit }) {
       ))}
       {error && <div className="text-rose-600 text-xs mb-2">{error}</div>}
       <button
-        onClick={() => {
-          if (form.password.length < 6) return setError("Wachtwoord moet minimaal 6 tekens zijn.");
+        disabled={busy}
+        onClick={async () => {
+          if (!form.firstName.trim() || !form.lastName.trim()) return setError("Vul je voor- en achternaam in.");
+          if (form.password.length < 8) return setError("Wachtwoord moet minimaal 8 tekens zijn.");
           if (form.password !== form.password2) return setError("Wachtwoorden komen niet overeen.");
           if (!form.email) return setError("Vul een e-mailadres in.");
-          onSubmit();
+          setError("");
+          setBusy(true);
+          const err = await onSubmit(form);
+          setBusy(false);
+          if (err) setError(err);
         }}
         className="w-full bg-orange-600 text-white font-bold py-2.5 rounded-lg mb-2"
       >
@@ -1228,6 +1399,57 @@ function RegisterForm({ onCancel, onSubmit }) {
       <button onClick={onCancel} className="w-full text-center text-sm text-stone-500">
         Annuleren
       </button>
+    </div>
+  );
+}
+
+function NewPasswordScreen({ onDone }) {
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [msg, setMsg] = useState("");
+  return (
+    <div className="h-dvh flex justify-center overflow-y-auto" style={{ background: BRAND_ORANGE }}>
+      <BrandStyle />
+      <div className="w-full max-w-sm p-6 py-10">
+        <div className="bg-white rounded-2xl p-6">
+          <div className="font-bold text-slate-900 mb-3">Nieuw wachtwoord instellen</div>
+          <input type="password" placeholder="Nieuw wachtwoord" className="w-full border border-stone-300 rounded-lg px-3 py-2 mb-2 text-sm" value={pw} onChange={(e) => setPw(e.target.value)} />
+          <input type="password" placeholder="Herhaal wachtwoord" className="w-full border border-stone-300 rounded-lg px-3 py-2 mb-2 text-sm" value={pw2} onChange={(e) => setPw2(e.target.value)} />
+          {msg && <div className="text-rose-600 text-xs mb-2">{msg}</div>}
+          <button
+            onClick={async () => {
+              if (pw.length < 8) return setMsg("Wachtwoord moet minimaal 8 tekens zijn.");
+              if (pw !== pw2) return setMsg("Wachtwoorden komen niet overeen.");
+              const { error } = await supabase.auth.updateUser({ password: pw });
+              if (error) return setMsg("Wijzigen mislukt: " + error.message);
+              onDone();
+            }}
+            className="w-full bg-orange-600 text-white font-bold py-2.5 rounded-lg"
+          >
+            Opslaan
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WaitingProfileScreen({ user, onLogout }) {
+  return (
+    <div className="h-dvh flex justify-center overflow-y-auto" style={{ background: BRAND_ORANGE }}>
+      <BrandStyle />
+      <div className="w-full max-w-sm p-6 py-10">
+        <div className="text-center mb-6 flex flex-col items-center">
+          <div className="bg-white rounded-3xl shadow-xl px-6 py-4"><BrandLogo height={72} /></div>
+        </div>
+        <div className="bg-white rounded-2xl p-6 text-center">
+          <div className="font-bold text-slate-900 mb-2">Welkom, {user.firstName}</div>
+          <p className="text-sm text-stone-600 mb-4">
+            Je account is goedgekeurd. Je spelersprofiel wordt nog gekoppeld door je trainer of begeleider. Kom later terug.
+          </p>
+          <button onClick={onLogout} className="text-orange-600 font-semibold text-sm">Uitloggen</button>
+        </div>
+      </div>
     </div>
   );
 }

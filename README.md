@@ -81,3 +81,15 @@ Productie-build maken: `npm run build` (de uitvoer komt in `dist/`).
 ## Let op
 
 Zet nooit echte spelersgegevens in een openbare repository. De namen in de demo zijn verzonnen.
+
+## Echte app met database (Supabase)
+
+De app gebruikt Supabase voor inloggen en gegevens. Zonder deze koppeling, of met `?demo` achter de link, draait de app met nepgegevens.
+
+Instellen:
+1. Maak een Supabase-project (regio EU) en zet de URL en publishable key in `.env`.
+2. Draai `supabase/001_inloggen_en_rollen.sql` in Supabase (SQL Editor).
+3. Registreer in de app met je eigen e-mailadres en draai daarna `supabase/002_eerste_coordinator.sql` (met je adres) om de eerste coördinator aan te maken.
+4. Zet in Supabase onder Authentication > URL Configuration de Site URL op de link van de app.
+
+Zet nooit de `service_role` key of het database-wachtwoord in de code.
