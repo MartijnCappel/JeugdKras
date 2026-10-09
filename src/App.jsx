@@ -162,17 +162,17 @@ const initialUsers = [
 const initialPlayers = [
   {
     id: "p1", userId: "u5", name: "Tim Jonker", city: "Volendam", dob: "2009-03-12",
-    positions: ["Rechteropbouw"],
+    positions: ["Rechteropbouw"], teams: ["Jongens A1"],
     mood: 4, fatigue: 4, physicalCondition: 5, coachIds: ["u2", "u3", "u4"],
   },
   {
     id: "p2", userId: "u6", name: "Bram Schilder", city: "Edam", dob: "2008-11-02",
-    positions: ["Cirkel"],
+    positions: ["Cirkel"], teams: ["Jongens A1", "Heren 1"],
     mood: 2, fatigue: 2, physicalCondition: 1, coachIds: ["u2", "u4"],
   },
   {
     id: "p3", userId: "u7", name: "Nina Kramer", city: "Volendam", dob: "2010-06-25",
-    positions: ["Keeper"],
+    positions: ["Keeper"], teams: ["Meiden A1"],
     mood: 3, fatigue: 3, physicalCondition: 3, coachIds: ["u2", "u3"],
   },
 ];
@@ -195,6 +195,9 @@ const WEEK_ENTRY_KINDS = [
   { key: "training", label: "Training", emoji: "🤾", color: "bg-orange-50 border-orange-200 text-orange-900" },
   { key: "anders", label: "Anders", emoji: "📌", color: "bg-stone-50 border-stone-200 text-stone-800" },
 ];
+
+// Teams waar een speler in kan zitten (een speler kan in meerdere teams zitten)
+const initialTeams = ["Jongens A1", "Jongens B1", "Meiden A1", "Heren 1"];
 
 const POSITION_OPTIONS = ["Linkerhoek", "Linker opbouw", "Midden opbouw", "Rechter opbouw", "Rechterhoek", "Cirkel", "Keeper"];
 const TRAINING_TYPE_OPTIONS = ["Kracht", "Team", "Positie", "Loop", "Wedstrijd", "Anders"];
@@ -402,6 +405,7 @@ function canMessage(a, b, players) {
 export default function KrasApp() {
   const [users, setUsers] = useState(initialUsers);
   const [players, setPlayers] = useState(initialPlayers);
+  const [teams, setTeams] = useState(initialTeams);
   const [trainings, setTrainings] = useState(initialTrainings);
   const [schemas, setSchemas] = useState(initialSchemas);
   const [logbook, setLogbook] = useState(initialLogbook);
@@ -656,6 +660,7 @@ export default function KrasApp() {
           {tab === "spelers" && role !== "speler" && !detailPlayerId && (
             <SpelersScreen
               players={players}
+              teams={teams}
               currentUser={currentUser}
               alertLabelsByPlayer={alertLabelsByPlayer}
               onOpen={(id) => { setDetailPlayerId(id); markPlayerAlertsSeen(id); }}
@@ -665,6 +670,26 @@ export default function KrasApp() {
             <SpelerDetailScreen
               player={players.find((p) => p.id === detailPlayerId)}
               users={users}
+              teams={teams}
+              onToggleTeam={(team) => {
+                setPlayers((ps) =>
+                  ps.map((p) => {
+                    if (p.id !== detailPlayerId) return p;
+                    const cur = p.teams || [];
+                    return { ...p, teams: cur.includes(team) ? cur.filter((x) => x !== team) : [...cur, team] };
+                  })
+                );
+              }}
+              onAddTeam={(name) => {
+                const n = name.trim();
+                if (!n) return;
+                const existing = teams.find((t) => t.toLowerCase() === n.toLowerCase());
+                const finalName = existing || n;
+                if (!existing) setTeams((ts) => [...ts, n]);
+                setPlayers((ps) =>
+                  ps.map((p) => (p.id === detailPlayerId && !(p.teams || []).includes(finalName) ? { ...p, teams: [...(p.teams || []), finalName] } : p))
+                );
+              }}
               logbook={logbook.filter((l) => l.playerId === detailPlayerId)}
               trainings={trainings.filter((t) => t.playerIds.includes(detailPlayerId))}
               canEdit={role === "coordinator" || role === "trainer"}
@@ -1428,10 +1453,17 @@ function StafScreen({ users, players, onTogglePlayerCoach }) {
 // Spelers (staff view)
 // ---------------------------------------------------------------------------
 
-function SpelersScreen({ players, currentUser, alertLabelsByPlayer = {}, onOpen }) {
+function SpelersScreen({ players, teams = [], currentUser, alertLabelsByPlayer = {}, onOpen }) {
   const [q, setQ] = useState("");
+  const [teamFilter, setTeamFilter] = useState([]);
+  const toggleTeamFilter = (t) => setTeamFilter((f) => (f.includes(t) ? f.filter((x) => x !== t) : [...f, t]));
+  const ql = q.toLowerCase();
   const filtered = players.filter(
-    (p) => p.name.toLowerCase().includes(q.toLowerCase()) || p.positions.join(" ").toLowerCase().includes(q.toLowerCase())
+    (p) =>
+      (p.name.toLowerCase().includes(ql) ||
+        p.positions.join(" ").toLowerCase().includes(ql) ||
+        (p.teams || []).join(" ").toLowerCase().includes(ql)) &&
+      (teamFilter.length === 0 || (p.teams || []).some((t) => teamFilter.includes(t)))
   );
   const linked = filtered.filter((p) => p.coachIds.includes(currentUser.id));
   const unlinked = filtered.filter((p) => !p.coachIds.includes(currentUser.id));
@@ -1442,11 +1474,31 @@ function SpelersScreen({ players, currentUser, alertLabelsByPlayer = {}, onOpen 
         <Search size={16} className="absolute left-3 top-3 text-stone-400" />
         <input
           className="w-full border border-stone-300 rounded-lg pl-9 pr-3 py-2 text-sm bg-white"
-          placeholder="Zoek op naam of positie"
+          placeholder="Zoek op naam, positie of team"
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
       </div>
+
+      {teams.length > 0 && (
+        <div className="flex gap-1.5 overflow-x-auto pb-2 mb-2 -mx-1 px-1">
+          {teams.map((t) => {
+            const on = teamFilter.includes(t);
+            return (
+              <button
+                key={t}
+                onClick={() => toggleTeamFilter(t)}
+                className={`shrink-0 text-xs font-semibold px-3 py-1 rounded-full border ${on ? "bg-orange-600 text-white border-orange-600" : "bg-white text-stone-600 border-stone-300"}`}
+              >
+                {t}
+              </button>
+            );
+          })}
+          {teamFilter.length > 0 && (
+            <button onClick={() => setTeamFilter([])} className="shrink-0 text-xs font-semibold text-stone-500 px-2">Wis filter</button>
+          )}
+        </div>
+      )}
 
       <div className="mb-4">
         <div className="font-bold text-slate-900 mb-2 text-sm">Gekoppelde spelers ({linked.length})</div>
@@ -1481,6 +1533,7 @@ function PlayerRow({ p, alertLabels, onOpen }) {
         {hasAlert && <div className="text-[11px] font-semibold text-rose-600">Aangepast naar rood: {alertLabels.join(", ")}</div>}
         <div className="flex flex-wrap gap-1 mt-1">
           {p.positions.map((pos) => <Badge key={pos}>{pos}</Badge>)}
+          {(p.teams || []).map((t) => <span key={t} className="text-[10px] uppercase font-semibold px-2 py-1 rounded-full bg-slate-800 text-white">{t}</span>)}
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
@@ -1495,7 +1548,7 @@ function PlayerRow({ p, alertLabels, onOpen }) {
   );
 }
 
-function SpelerDetailScreen({ player, users, logbook, trainings, canEdit, viewerRole, onBack, onAddLog, onToggleCoach, onTogglePosition, onUpdateCondition, onToggleModule, onUpdateTvs, onDeleteLog }) {
+function SpelerDetailScreen({ player, users, teams = [], onToggleTeam, onAddTeam, logbook, trainings, canEdit, viewerRole, onBack, onAddLog, onToggleCoach, onTogglePosition, onUpdateCondition, onToggleModule, onUpdateTvs, onDeleteLog }) {
   const [showAddLog, setShowAddLog] = useState(false);
   const [confirmDeleteLogId, setConfirmDeleteLogId] = useState(null);
   const canDeleteLog = viewerRole === "trainer" || viewerRole === "begeleider" || viewerRole === "specialist";
@@ -1508,6 +1561,9 @@ function SpelerDetailScreen({ player, users, logbook, trainings, canEdit, viewer
   const staffUsers = users.filter((u) => isStaff(u));
   const canManageLinks = viewerRole !== "speler";
   const canEditPosition = viewerRole === "trainer" || viewerRole === "begeleider";
+  const canEditTeams = viewerRole === "trainer" || viewerRole === "begeleider" || viewerRole === "coordinator";
+  const [newTeam, setNewTeam] = useState("");
+  const playerTeams = player.teams || [];
   const canEditCondition = viewerRole === "trainer" || viewerRole === "begeleider" || viewerRole === "specialist";
 
   return (
@@ -1546,6 +1602,51 @@ function SpelerDetailScreen({ player, users, logbook, trainings, canEdit, viewer
             <div className="flex flex-wrap gap-1.5">
               {player.positions.map((pos) => <Badge key={pos}>{pos}</Badge>)}
             </div>
+          )}
+        </div>
+
+        <div className="mb-3">
+          <div className="text-[10px] uppercase font-semibold text-stone-400 mb-1">Team(s)</div>
+          {canEditTeams ? (
+            <>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {teams.map((t) => {
+                  const active = playerTeams.includes(t);
+                  return (
+                    <button
+                      key={t}
+                      onClick={() => onToggleTeam(t)}
+                      className={`text-[10px] uppercase font-semibold px-2 py-1 rounded-full border ${
+                        active ? "bg-slate-800 text-white border-slate-800" : "bg-white text-stone-500 border-stone-300"
+                      }`}
+                    >
+                      {t}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  className="flex-1 min-w-0 border border-stone-300 rounded-lg px-3 py-1.5 text-sm bg-white"
+                  placeholder="Nieuw team toevoegen"
+                  value={newTeam}
+                  onChange={(e) => setNewTeam(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && newTeam.trim()) { onAddTeam(newTeam); setNewTeam(""); } }}
+                />
+                <button
+                  onClick={() => { if (newTeam.trim()) { onAddTeam(newTeam); setNewTeam(""); } }}
+                  className={`shrink-0 text-xs font-semibold px-3 rounded-lg ${newTeam.trim() ? "bg-orange-600 text-white" : "bg-stone-100 text-stone-400"}`}
+                >
+                  Toevoegen
+                </button>
+              </div>
+            </>
+          ) : playerTeams.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {playerTeams.map((t) => <span key={t} className="text-[10px] uppercase font-semibold px-2 py-1 rounded-full bg-slate-800 text-white">{t}</span>)}
+            </div>
+          ) : (
+            <div className="text-xs text-stone-400">Nog niet in een team.</div>
           )}
         </div>
 
