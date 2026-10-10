@@ -620,7 +620,7 @@ export default function KrasApp() {
     }
   }
 
-  const LOG_KNOWN = ["id", "playerId", "type", "title", "note", "score", "date", "author", "authorId", "schemaId", "trainingId"];
+  const LOG_KNOWN = ["id", "playerId", "type", "title", "note", "score", "date", "author", "authorId", "schemaId", "trainingId", "staffOnly"];
   async function loadLogbook() {
     const { data, error } = await supabase.from("logbook").select("*").order("log_date", { ascending: false }).order("created_at", { ascending: false });
     if (error) { flash("Logboek laden mislukt: " + error.message); return; }
@@ -628,7 +628,7 @@ export default function KrasApp() {
       ...(r.extra || {}),
       id: r.id, playerId: r.player_id, type: r.type, title: r.title, note: r.note, score: r.score || undefined,
       date: r.log_date, author: r.author_name, authorId: r.author_id,
-      schemaId: r.schema_id || undefined, trainingId: r.training_id || undefined,
+      schemaId: r.schema_id || undefined, trainingId: r.training_id || undefined, staffOnly: r.staff_only || undefined,
     }));
     logbookRef.current = list;
     setLogbookState(list);
@@ -708,7 +708,7 @@ export default function KrasApp() {
       const { error } = await supabase.from("logbook").insert({
         id: l.id, player_id: l.playerId, type: l.type || "overig", title: l.title || "", note: l.note || "",
         score: l.score || null, log_date: l.date || todayLocalISO(), author_id: l.authorId || sessionUserRef.current,
-        author_name: l.author || "", schema_id: l.schemaId || null, training_id: l.trainingId || null, extra,
+        author_name: l.author || "", schema_id: l.schemaId || null, training_id: l.trainingId || null, staff_only: !!l.staffOnly, extra,
       });
       if (error) { flash("Logregel opslaan mislukt: " + error.message); failed = true; }
     }
@@ -1349,14 +1349,14 @@ export default function KrasApp() {
                   ps.map((p) => (p.id === detailPlayerId && !(p.teams || []).includes(finalName) ? { ...p, teams: [...(p.teams || []), finalName] } : p))
                 );
               }}
-              logbook={logbook.filter((l) => l.playerId === detailPlayerId)}
+              logbook={logbook.filter((l) => l.playerId === detailPlayerId && canSeeLog(l, role, currentUser, players.find((p) => p.id === detailPlayerId)))}
               trainings={trainings.filter((t) => t.playerIds.includes(detailPlayerId))}
               canEdit={role === "coordinator" || role === "trainer"}
               viewerRole={role}
               onBack={() => setDetailPlayerId(null)}
               onAddLog={(entry) => {
                 setLogbook((lb) => [{ ...entry, id: newId("l"), authorId: currentUser.id, playerId: detailPlayerId, author: `${currentUser.firstName} ${currentUser.lastName}` }, ...lb]);
-                flash("Logboekregel toegevoegd");
+                flash(entry.staffOnly ? "Opgeslagen in Staf Logboek" : entry.type === "overig" && entry.title.startsWith("Talent Volg") ? "Opgeslagen in Spelers Logboek" : "Logboekregel toegevoegd");
               }}
               onToggleCoach={(staffId) => {
                 setPlayers((ps) =>
@@ -1600,7 +1600,7 @@ export default function KrasApp() {
           {tab === "voortgang" && role === "speler" && (
             <VoortgangScreen
               player={players.find((p) => p.userId === currentUser.id)}
-              logbook={logbook.filter((l) => l.playerId === players.find((p) => p.userId === currentUser.id)?.id)}
+              logbook={logbook.filter((l) => !l.staffOnly && l.playerId === players.find((p) => p.userId === currentUser.id)?.id)}
               onUpdate={(field, value) => {
                 const me = players.find((p) => p.userId === currentUser.id);
                 // Verandert de speler een score naar rood (1 of 2)? Dan krijgen gekoppelde trainers/begeleiders een rood puntje.
@@ -2473,25 +2473,33 @@ function SpelerDetailScreen({ player, users, teams = [], onToggleTeam, onAddTeam
               />
             </div>
 
-            <button
-              disabled={!tvsType}
-              onClick={() => {
-                const devLabel = TVS_DEVELOPMENT_SCALE.find((s) => s.v === tvs.development)?.label;
-                const parts = [`Willen ${tvs.willen} · Kunnen ${tvs.kunnen}`];
-                if (devLabel) parts.push(`Ontwikkeling: ${devLabel}`);
-                if (tvs.note && tvs.note.trim()) parts.push(tvs.note.trim());
-                onAddLog({
-                  type: "overig",
-                  title: `Talent Volg Systeem: ${tvsType}`,
-                  note: parts.join("\n"),
-                  score: tvs.development || undefined,
-                  date: todayLocalISO(),
-                });
-              }}
-              className={`w-full text-sm font-bold py-2.5 rounded-lg ${tvsType ? "bg-orange-600 text-white" : "bg-stone-100 text-stone-400"}`}
-            >
-              Toevoegen aan het spelers Logboek
-            </button>
+            {[
+              { staffOnly: false, label: "Opslaan in Spelers Logboek", style: "bg-orange-600 text-white" },
+              { staffOnly: true, label: "Opslaan in Staf Logboek", style: "bg-slate-800 text-white" },
+            ].map((b) => (
+              <button
+                key={b.label}
+                disabled={!tvsType}
+                onClick={() => {
+                  const devLabel = TVS_DEVELOPMENT_SCALE.find((s) => s.v === tvs.development)?.label;
+                  const parts = [`Willen ${tvs.willen} · Kunnen ${tvs.kunnen}`];
+                  if (devLabel) parts.push(`Ontwikkeling: ${devLabel}`);
+                  if (tvs.note && tvs.note.trim()) parts.push(tvs.note.trim());
+                  onAddLog({
+                    type: "overig",
+                    title: `Talent Volg Systeem: ${tvsType}`,
+                    note: parts.join("\n"),
+                    score: tvs.development || undefined,
+                    date: todayLocalISO(),
+                    staffOnly: b.staffOnly || undefined,
+                  });
+                }}
+                className={`w-full text-sm font-bold py-2.5 rounded-lg ${tvsType ? b.style : "bg-stone-100 text-stone-400"}`}
+              >
+                {b.label}
+              </button>
+            ))}
+            <div className="text-[11px] text-stone-400 -mt-1">Het Staf Logboek is alleen zichtbaar voor de coördinator en gekoppelde trainers en specialisten.</div>
             {!tvsType && <div className="text-[11px] text-stone-400 -mt-1">Kies eerst willen en kunnen.</div>}
           </div>
         </div>
@@ -2578,7 +2586,7 @@ function SpelerDetailScreen({ player, users, teams = [], onToggleTeam, onAddTeam
                 {l.score && <span className="text-lg shrink-0">{TRAINING_FEEL_SCALE.find((s) => s.v === l.score)?.emoji}</span>}
               </div>
               {l.note && <div className="text-xs opacity-80 whitespace-pre-line">{l.note}</div>}
-              <div className="text-[10px] opacity-70 mt-1 uppercase tracking-wide">{l.type}</div>
+              <div className="text-[10px] opacity-70 mt-1 uppercase tracking-wide">{l.type}{l.staffOnly ? " · alleen staf" : ""}</div>
               <div className="flex items-center justify-between gap-2">
                 <div className="text-[10px] opacity-70">{l.date} · {l.author}</div>
                 {canDeleteLog && confirmDeleteLogId !== l.id && (
@@ -2688,6 +2696,13 @@ function SmileyScale({ title, scale, value, onChange, readOnly, emptyLabel }) {
       </div>
     </div>
   );
+}
+
+// Het staflogboek is alleen te zien voor de coördinator en voor gekoppelde trainers en specialisten.
+function canSeeLog(l, viewerRole, viewer, player) {
+  if (!l.staffOnly) return true;
+  if (viewerRole === "coordinator") return true;
+  return (viewerRole === "trainer" || viewerRole === "specialist") && !!player && !!viewer && player.coachIds.includes(viewer.id);
 }
 
 // Bepaalt of er nieuwe, nog niet geopende berichten in een trainingsgesprek staan.
