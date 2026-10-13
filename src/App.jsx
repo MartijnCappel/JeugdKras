@@ -506,6 +506,8 @@ export default function KrasApp() {
 
   // --- Echte app (Supabase): inloggen, profielen en beheer ------------------
   const [authReady, setAuthReady] = useState(!BACKEND);
+  // Tijdelijke wachtwoorden na een reset, per gebruiker, zichtbaar voor wie mag resetten.
+  const [tempPasswords, setTempPasswords] = useState({});
   const [authNotice, setAuthNotice] = useState("");
   const [recovery, setRecovery] = useState(false);
   const sessionUserRef = useRef(null);
@@ -514,8 +516,8 @@ export default function KrasApp() {
     const roles = sortRoles(r.roles && r.roles.length ? r.roles : ["speler"]);
     return {
       id: r.id, email: r.email, firstName: r.first_name, lastName: r.last_name,
-      city: r.city, dob: r.dob, title: r.title || undefined,
-      role: roles[0], roles, status: r.status,
+      city: r.city || "", dob: r.dob || "", title: r.title || undefined,
+      role: roles[0], roles, status: r.status, mustChange: !!r.must_change_password,
     };
   }
 
@@ -790,6 +792,70 @@ export default function KrasApp() {
     if (failed) await loadConversations();
   }
 
+  async function loadTempPasswords() {
+    const { data } = await supabase.from("temp_passwords").select("user_id,password");
+    if (data) setTempPasswords(Object.fromEntries(data.map((x) => [x.user_id, x.password])));
+  }
+
+  function randomPassword() {
+    const alphabet = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    const bytes = crypto.getRandomValues(new Uint8Array(10));
+    return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
+  }
+
+  async function resetPassword(targetUserId) {
+    if (BACKEND) {
+      const { data, error } = await supabase.rpc("admin_reset_password", { target: targetUserId });
+      if (error) { flash("Resetten mislukt: " + error.message); return; }
+      setTempPasswords((t) => ({ ...t, [targetUserId]: data }));
+      flash("Wachtwoord gereset");
+      return;
+    }
+    setTempPasswords((t) => ({ ...t, [targetUserId]: randomPassword() }));
+    flash("Wachtwoord gereset");
+  }
+
+  // Eigen gegevens (Meer-scherm) of die van een speler (door trainer/begeleider/coördinator)
+  async function saveProfileData(targetUserId, f) {
+    const clean = { first_name: f.firstName.trim(), last_name: f.lastName.trim(), city: f.city.trim() || null, dob: f.dob || null };
+    if (!clean.first_name || !clean.last_name) return "Vul een voor- en achternaam in.";
+    let note = "";
+    if (BACKEND) {
+      const { error } = await supabase.from("profiles").update(clean).eq("id", targetUserId);
+      if (error) return "Opslaan mislukt: " + error.message;
+      if (f.email !== undefined && targetUserId === currentUserId) {
+        const target = users.find((u) => u.id === targetUserId);
+        if (target && f.email.trim() && f.email.trim() !== target.email) {
+          const { error: e2 } = await supabase.auth.updateUser({ email: f.email.trim() });
+          if (e2) return "Gegevens opgeslagen, maar het e-mailadres wijzigen mislukt: " + e2.message;
+          note = " Je e-mailadres wijzigt na bevestiging via de mail die je ontvangt.";
+        }
+      }
+      await loadProfiles();
+      await loadPlayers();
+    } else {
+      setUsers((us) => us.map((u) => (u.id === targetUserId ? { ...u, firstName: clean.first_name, lastName: clean.last_name, city: clean.city, dob: clean.dob, ...(f.email !== undefined && f.email.trim() ? { email: f.email.trim() } : {}) } : u)));
+      setPlayers((ps) => ps.map((p) => (p.userId === targetUserId ? { ...p, name: `${clean.first_name} ${clean.last_name}`, city: clean.city || "", dob: clean.dob } : p)));
+    }
+    flash("Gegevens opgeslagen");
+    return note ? { ok: true, note } : null;
+  }
+
+  async function changeOwnPassword(current, next) {
+    if (next.length < 8) return "Het nieuwe wachtwoord moet minimaal 8 tekens zijn.";
+    if (BACKEND) {
+      const { error: e1 } = await supabase.auth.signInWithPassword({ email: currentUser.email, password: current });
+      if (e1) return "Je huidige wachtwoord klopt niet.";
+      const { error: e2 } = await supabase.auth.updateUser({ password: next });
+      if (e2) return "Wijzigen mislukt: " + e2.message;
+      await supabase.rpc("password_changed");
+      await loadProfiles();
+    }
+    setTempPasswords((t) => { const n = { ...t }; delete n[currentUser.id]; return n; });
+    flash("Wachtwoord gewijzigd");
+    return null;
+  }
+
   async function loadAll(userId) {
     await loadProfiles();
     await loadNames();
@@ -800,6 +866,7 @@ export default function KrasApp() {
     await loadLogbook();
     await loadConversations(userId);
     await loadAlerts(userId);
+    await loadTempPasswords();
   }
 
   async function persistTrainingDiff(oldList, newList) {
@@ -986,6 +1053,7 @@ export default function KrasApp() {
       loadLogbook();
       loadConversations();
       loadAlerts();
+      loadTempPasswords();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, currentUserId]);
@@ -1185,6 +1253,22 @@ export default function KrasApp() {
 
   const tabs = TABS[role];
   const myPlayer = players.find((p) => p.userId === currentUser.id);
+  if (BACKEND && currentUser.mustChange) {
+    return (
+      <ForcePasswordScreen
+        user={currentUser}
+        onSave={async (pw) => {
+          if (pw.length < 8) return "Het nieuwe wachtwoord moet minimaal 8 tekens zijn.";
+          const { error } = await supabase.auth.updateUser({ password: pw });
+          if (error) return "Wijzigen mislukt: " + error.message;
+          await supabase.rpc("password_changed");
+          await loadProfiles();
+          return null;
+        }}
+        onLogout={logout}
+      />
+    );
+  }
   if (BACKEND && role === "speler" && !myPlayer) {
     return <WaitingProfileScreen user={currentUser} onLogout={logout} />;
   }
@@ -1271,6 +1355,8 @@ export default function KrasApp() {
             <BeheerScreen
               users={users}
               currentUserId={currentUser.id}
+              tempPasswords={tempPasswords}
+              onResetPassword={resetPassword}
               onApprove={(id, newRoles) => {
                 const roles = sortRoles(newRoles);
                 if (BACKEND) { dbUpdateProfile(id, { roles, status: "actief" }, "Account goedgekeurd"); return; }
@@ -1328,6 +1414,10 @@ export default function KrasApp() {
             <SpelerDetailScreen
               player={players.find((p) => p.id === detailPlayerId)}
               users={users}
+              viewerId={currentUser.id}
+              tempPassword={tempPasswords[players.find((p) => p.id === detailPlayerId)?.userId]}
+              onResetPassword={() => resetPassword(players.find((p) => p.id === detailPlayerId)?.userId)}
+              onSaveProfile={(f) => saveProfileData(players.find((p) => p.id === detailPlayerId)?.userId, f)}
               teams={teams}
               onToggleTeam={(team) => {
                 setPlayers((ps) =>
@@ -1659,6 +1749,8 @@ export default function KrasApp() {
               onLogout={logout}
               onOpenPlayerNamesOnly={role === "speler"}
               players={players}
+              onSaveProfile={(f) => saveProfileData(currentUser.id, f)}
+              onChangePassword={changeOwnPassword}
               onUpdateTitle={(title) => {
                 if (BACKEND) { dbUpdateProfile(currentUser.id, { title }, "Titel bijgewerkt"); return; }
                 setUsers((us) => us.map((u) => (u.id === currentUser.id ? { ...u, title } : u)));
@@ -2065,7 +2157,7 @@ function RolePicker({ value, onChange, lockedRoles = [] }) {
   );
 }
 
-function BeheerScreen({ users, currentUserId, onApprove, onReject, onChangeStatus, onChangeRole, onDelete }) {
+function BeheerScreen({ users, currentUserId, tempPasswords = {}, onResetPassword, onApprove, onReject, onChangeStatus, onChangeRole, onDelete }) {
   const pending = users.filter((u) => u.status === "in afwachting");
   const active = users.filter((u) => u.status !== "in afwachting");
   const [roleChoice, setRoleChoice] = useState({});
@@ -2114,6 +2206,13 @@ function BeheerScreen({ users, currentUserId, onApprove, onReject, onChangeStatu
                   <Trash2 size={16} />
                 </button>
               </div>
+              {tempPasswords[u.id] && <TempPasswordBox password={tempPasswords[u.id]} />}
+              <button
+                onClick={() => { if (confirm(`Wachtwoord van ${u.firstName} ${u.lastName} resetten?`)) onResetPassword(u.id); }}
+                className="text-xs font-semibold text-stone-600 bg-stone-100 rounded-lg px-3 py-1.5 mb-3"
+              >
+                Wachtwoord resetten
+              </button>
               <div className="text-[10px] uppercase font-semibold text-stone-400 mb-1">Rol(len)</div>
               <div className="mb-2">
                 <RolePicker
@@ -2285,7 +2384,7 @@ function PlayerRow({ p, alertLabels, onOpen }) {
   );
 }
 
-function SpelerDetailScreen({ player, users, teams = [], onToggleTeam, onAddTeam, logbook, trainings, canEdit, viewerRole, onBack, onAddLog, onToggleCoach, onTogglePosition, onUpdateCondition, onToggleModule, onUpdateTvs, onDeleteLog }) {
+function SpelerDetailScreen({ player, users, viewerId, tempPassword, onResetPassword, onSaveProfile, teams = [], onToggleTeam, onAddTeam, logbook, trainings, canEdit, viewerRole, onBack, onAddLog, onToggleCoach, onTogglePosition, onUpdateCondition, onToggleModule, onUpdateTvs, onDeleteLog }) {
   const [showAddLog, setShowAddLog] = useState(false);
   const [confirmDeleteLogId, setConfirmDeleteLogId] = useState(null);
   const canDeleteLog = viewerRole === "trainer" || viewerRole === "begeleider" || viewerRole === "specialist";
@@ -2300,6 +2399,10 @@ function SpelerDetailScreen({ player, users, teams = [], onToggleTeam, onAddTeam
   const canEditPosition = viewerRole === "trainer" || viewerRole === "begeleider";
   const canEditTeams = viewerRole === "trainer" || viewerRole === "begeleider" || viewerRole === "coordinator";
   const [newTeam, setNewTeam] = useState("");
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const canEditProfile = viewerRole === "trainer" || viewerRole === "begeleider" || viewerRole === "coordinator";
+  const canResetPw = viewerRole === "coordinator" || ((viewerRole === "trainer" || viewerRole === "begeleider") && (player.coachIds || []).includes(viewerId));
   const playerTeams = player.teams || [];
   const canEditCondition = viewerRole === "trainer" || viewerRole === "begeleider" || viewerRole === "specialist";
 
@@ -2312,9 +2415,33 @@ function SpelerDetailScreen({ player, users, teams = [], onToggleTeam, onAddTeam
       <div className="bg-white rounded-xl p-4 border border-stone-200 mb-4">
         <div className="flex items-center justify-between mb-1">
           <div className="text-xl font-bold text-slate-900">{player.name}</div>
-          {canEdit && <button className="text-xs text-orange-600 font-semibold">Bewerken</button>}
+          {canEditProfile && !editingProfile && <button onClick={() => setEditingProfile(true)} className="text-xs text-orange-600 font-semibold">Bewerken</button>}
         </div>
-        <div className="text-sm text-stone-500 mb-2">{player.city}{player.city && player.dob ? " · " : ""}{player.dob ? new Date(player.dob).toLocaleDateString("nl-NL") : ""}</div>
+        {editingProfile ? (
+          <ProfileEditForm
+            initial={{ firstName: (users.find((u) => u.id === player.userId) || {}).firstName || player.name.split(" ")[0], lastName: (users.find((u) => u.id === player.userId) || {}).lastName || player.name.split(" ").slice(1).join(" "), city: player.city || "", dob: player.dob || "" }}
+            onSave={async (f) => { const r = await onSaveProfile(f); if (!r || r.ok) setEditingProfile(false); return r; }}
+            onCancel={() => setEditingProfile(false)}
+          />
+        ) : (
+          <div className="text-sm text-stone-500 mb-2">{player.city}{player.city && player.dob ? " · " : ""}{player.dob ? new Date(player.dob).toLocaleDateString("nl-NL") : ""}</div>
+        )}
+        {canResetPw && (
+          <div className="mb-3">
+            {tempPassword && <TempPasswordBox password={tempPassword} />}
+            {!confirmReset ? (
+              <button onClick={() => setConfirmReset(true)} className="text-xs font-semibold text-stone-600 bg-stone-100 rounded-lg px-3 py-1.5">
+                Wachtwoord resetten
+              </button>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold">Wachtwoord van {player.name} resetten?</span>
+                <button onClick={() => setConfirmReset(false)} className="text-xs font-semibold px-2.5 py-1 rounded-md bg-stone-100 text-stone-700">Nee</button>
+                <button onClick={() => { onResetPassword(); setConfirmReset(false); }} className="text-xs font-semibold px-2.5 py-1 rounded-md bg-rose-600 text-white">Ja</button>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="mb-3">
           <div className="text-[10px] uppercase font-semibold text-stone-400 mb-1">Positie(s)</div>
@@ -3838,7 +3965,135 @@ function ChatScreen({ convo, currentUser, users, onBack, onSend }) {
 // Meer / Profiel
 // ---------------------------------------------------------------------------
 
-function MeerScreen({ user, role, users, onLogout, players, onUpdateTitle }) {
+function TempPasswordBox({ password }) {
+  return (
+    <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 mb-2">
+      <div className="text-[10px] uppercase font-semibold text-amber-800">Tijdelijk wachtwoord</div>
+      <div className="font-mono text-base font-bold text-slate-900 select-all">{password}</div>
+      <div className="text-[11px] text-amber-800">Wordt getoond tot de gebruiker het zelf heeft gewijzigd. Geef het persoonlijk door.</div>
+    </div>
+  );
+}
+
+function ProfileEditForm({ initial, onSave, onCancel, showEmail }) {
+  const [f, setF] = useState(initial);
+  const [msg, setMsg] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const field = (key, label, type = "text") => (
+    <div className="mb-2">
+      <label className="text-[10px] uppercase font-semibold text-stone-400">{label}</label>
+      <input type={type} value={f[key] || ""} onChange={(e) => setF({ ...f, [key]: e.target.value })} className="w-full border border-stone-300 rounded-lg px-3 py-1.5 text-sm bg-white" />
+    </div>
+  );
+  return (
+    <div className="mb-3">
+      {field("firstName", "Voornaam")}
+      {field("lastName", "Achternaam")}
+      {field("city", "Woonplaats")}
+      {field("dob", "Geboortedatum", "date")}
+      {showEmail && field("email", "E-mailadres", "email")}
+      {msg && <div className={`text-xs mb-2 ${typeof msg === "string" ? "text-rose-600" : "text-emerald-700"}`}>{typeof msg === "string" ? msg : "Opgeslagen." + (msg.note || "")}</div>}
+      <div className="flex gap-2">
+        <button
+          disabled={busy}
+          onClick={async () => { setBusy(true); const r = await onSave(f); setBusy(false); setMsg(r === null ? { ok: true } : r); }}
+          className="flex-1 bg-orange-600 text-white text-sm font-semibold py-1.5 rounded-lg"
+        >
+          Opslaan
+        </button>
+        {onCancel && <button onClick={onCancel} className="flex-1 bg-stone-100 text-stone-700 text-sm font-semibold py-1.5 rounded-lg">Annuleren</button>}
+      </div>
+    </div>
+  );
+}
+
+function MyDataCard({ user, players, onSaveProfile }) {
+  const [open, setOpen] = useState(false);
+  const me = players.find((p) => p.userId === user.id);
+  const initial = { firstName: user.firstName, lastName: user.lastName, city: user.city ?? (me && me.city) ?? "", dob: user.dob ?? (me && me.dob) ?? "", email: user.email };
+  return (
+    <div className="bg-white rounded-xl p-3 border border-stone-200">
+      <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between text-left">
+        <span className="text-sm font-semibold text-slate-900">Mijn gegevens</span>
+        <ChevronRightIcon size={16} className={`text-stone-300 transition-transform ${open ? "rotate-90" : ""}`} />
+      </button>
+      {open && <div className="mt-3"><ProfileEditForm initial={initial} showEmail onSave={onSaveProfile} /></div>}
+    </div>
+  );
+}
+
+function ChangePasswordCard({ onChangePassword }) {
+  const [open, setOpen] = useState(false);
+  const [cur, setCur] = useState("");
+  const [next, setNext] = useState("");
+  const [next2, setNext2] = useState("");
+  const [msg, setMsg] = useState(null);
+  const input = (value, set, placeholder) => (
+    <input type="password" placeholder={placeholder} value={value} onChange={(e) => set(e.target.value)} className="w-full border border-stone-300 rounded-lg px-3 py-1.5 mb-2 text-sm bg-white" />
+  );
+  return (
+    <div className="bg-white rounded-xl p-3 border border-stone-200">
+      <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between text-left">
+        <span className="text-sm font-semibold text-slate-900">Wachtwoord wijzigen</span>
+        <ChevronRightIcon size={16} className={`text-stone-300 transition-transform ${open ? "rotate-90" : ""}`} />
+      </button>
+      {open && (
+        <div className="mt-3">
+          {input(cur, setCur, "Huidig wachtwoord")}
+          {input(next, setNext, "Nieuw wachtwoord (minimaal 8 tekens)")}
+          {input(next2, setNext2, "Herhaal nieuw wachtwoord")}
+          {msg && <div className="text-xs mb-2 text-rose-600">{msg}</div>}
+          <button
+            onClick={async () => {
+              if (next !== next2) return setMsg("De nieuwe wachtwoorden komen niet overeen.");
+              const err = await onChangePassword(cur, next);
+              setMsg(err);
+              if (!err) { setCur(""); setNext(""); setNext2(""); setOpen(false); }
+            }}
+            className="w-full bg-orange-600 text-white text-sm font-semibold py-1.5 rounded-lg"
+          >
+            Wachtwoord opslaan
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ForcePasswordScreen({ user, onSave, onLogout }) {
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [msg, setMsg] = useState("");
+  return (
+    <div className="h-dvh flex justify-center overflow-y-auto" style={{ background: BRAND_ORANGE }}>
+      <BrandStyle />
+      <div className="w-full max-w-sm p-6 py-10">
+        <div className="text-center mb-6 flex flex-col items-center">
+          <div className="bg-white rounded-3xl shadow-xl px-6 py-4"><BrandLogo height={72} /></div>
+        </div>
+        <div className="bg-white rounded-2xl p-6">
+          <div className="font-bold text-slate-900 mb-1">Kies een nieuw wachtwoord</div>
+          <p className="text-xs text-stone-500 mb-3">Hoi {user.firstName}, je wachtwoord is gereset. Kies nu je eigen wachtwoord om verder te gaan.</p>
+          <input type="password" placeholder="Nieuw wachtwoord (minimaal 8 tekens)" className="w-full border border-stone-300 rounded-lg px-3 py-2 mb-2 text-sm" value={pw} onChange={(e) => setPw(e.target.value)} />
+          <input type="password" placeholder="Herhaal wachtwoord" className="w-full border border-stone-300 rounded-lg px-3 py-2 mb-2 text-sm" value={pw2} onChange={(e) => setPw2(e.target.value)} />
+          {msg && <div className="text-rose-600 text-xs mb-2">{msg}</div>}
+          <button
+            onClick={async () => {
+              if (pw !== pw2) return setMsg("Wachtwoorden komen niet overeen.");
+              setMsg((await onSave(pw)) || "");
+            }}
+            className="w-full bg-orange-600 text-white font-bold py-2.5 rounded-lg mb-2"
+          >
+            Opslaan
+          </button>
+          <button onClick={onLogout} className="w-full text-center text-sm text-stone-500">Uitloggen</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MeerScreen({ user, role, users, onLogout, players, onUpdateTitle, onSaveProfile, onChangePassword }) {
   const [showTeam, setShowTeam] = useState(false);
   const [titleDraft, setTitleDraft] = useState(user.title || "");
   const staff = users.filter((u) => isStaff(u) && u.id !== user.id);
@@ -3853,6 +4108,9 @@ function MeerScreen({ user, role, users, onLogout, players, onUpdateTitle }) {
         <div className="text-sm text-stone-500">{roleDisplay(user)}</div>
         <div className="text-xs text-stone-400 mt-1">{user.email}</div>
       </div>
+
+      <MyDataCard user={user} players={players} onSaveProfile={onSaveProfile} />
+      <ChangePasswordCard onChangePassword={onChangePassword} />
 
       {role === "specialist" && (
         <div className="bg-white rounded-xl p-4 border border-stone-200">
