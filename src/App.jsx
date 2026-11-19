@@ -503,6 +503,11 @@ export default function KrasApp() {
   const currentUser = users.find((u) => u.id === currentUserId) || null;
   const myRoles = getRoles(currentUser);
   const role = currentUser ? (myRoles.includes(activeRole) ? activeRole : myRoles[0]) : undefined;
+  // Trainers en begeleiders zien alleen de aan hen gekoppelde spelers (coördinator en specialist zien iedereen).
+  const shownPlayers =
+    currentUser && (role === "trainer" || role === "begeleider")
+      ? players.filter((p) => (p.coachIds || []).includes(currentUser.id))
+      : players;
 
   // --- Echte app (Supabase): inloggen, profielen en beheer ------------------
   const [authReady, setAuthReady] = useState(!BACKEND);
@@ -1348,7 +1353,7 @@ export default function KrasApp() {
             <HomeScreen
               user={currentUser}
               role={role}
-              players={players}
+              players={shownPlayers}
               trainings={trainings}
               users={users}
               onOpenPlayer={(id) => {
@@ -1395,7 +1400,7 @@ export default function KrasApp() {
           {tab === "staf" && role === "coordinator" && (
             <StafScreen
               users={users}
-              players={players}
+              players={shownPlayers}
               onTogglePlayerCoach={(staffId, playerId) => {
                 setPlayers((ps) =>
                   ps.map((p) =>
@@ -1410,7 +1415,7 @@ export default function KrasApp() {
 
           {tab === "spelers" && role !== "speler" && !detailPlayerId && (
             <SpelersScreen
-              players={players}
+              players={shownPlayers}
               teams={teams}
               currentUser={currentUser}
               alertLabelsByPlayer={alertLabelsByPlayer}
@@ -1499,7 +1504,7 @@ export default function KrasApp() {
           {(tab === "trainingen") && role !== "speler" && !detailTrainingId && (
             <TrainingenScreen
               trainings={trainings}
-              players={players}
+              players={shownPlayers}
               users={users}
               currentUser={currentUser}
               chatReadCounts={chatReadCounts}
@@ -1524,7 +1529,7 @@ export default function KrasApp() {
           {tab === "trainingen" && detailTrainingId && (
             <TrainingDetailScreen
               training={trainings.find((t) => t.id === detailTrainingId)}
-              players={players}
+              players={shownPlayers}
               users={users}
               currentUser={currentUser}
               onBack={() => setDetailTrainingId(null)}
@@ -1575,7 +1580,7 @@ export default function KrasApp() {
           {tab === "schemas" && role === "specialist" && !detailSchemaId && (
             <SpecialistSchemasScreen
               schemas={schemas.filter((s) => s.specialistId === currentUser.id)}
-              players={players}
+              players={shownPlayers}
               onOpen={(id) => setDetailSchemaId(id)}
               onCreate={(s) => {
                 setSchemas((ss) => [...ss, { ...s, id: newId("s"), specialistId: currentUser.id }]);
@@ -1586,7 +1591,7 @@ export default function KrasApp() {
           {tab === "schemas" && role === "specialist" && detailSchemaId && (
             <SchemaDetailScreen
               schema={schemas.find((s) => s.id === detailSchemaId)}
-              players={players}
+              players={shownPlayers}
               onBack={() => setDetailSchemaId(null)}
               onDelete={() => {
                 setSchemas((ss) => ss.filter((s) => s.id !== detailSchemaId));
@@ -1713,7 +1718,7 @@ export default function KrasApp() {
             <BerichtenScreen
               currentUser={currentUser}
               users={users}
-              players={players}
+              players={shownPlayers}
               conversations={conversations}
               conversationHasUnread={conversationHasUnread}
               onOpen={(id) => { setActiveConvoId(id); markConversationRead(id); }}
@@ -1755,7 +1760,7 @@ export default function KrasApp() {
               users={users}
               onLogout={logout}
               onOpenPlayerNamesOnly={role === "speler"}
-              players={players}
+              players={shownPlayers}
               onSaveProfile={(f) => saveProfileData(currentUser.id, f)}
               onChangePassword={changeOwnPassword}
               onUpdateTitle={(title) => {
