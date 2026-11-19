@@ -856,6 +856,13 @@ export default function KrasApp() {
     return null;
   }
 
+  // Teams en spelers opnieuw ophalen zodra het Spelers-scherm opent (bv. na een import)
+  useEffect(() => {
+    if (!BACKEND || tab !== "spelers" || !sessionUserRef.current) return;
+    (async () => { await loadTeams(); await loadPlayers(); })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
   async function loadAll(userId) {
     await loadProfiles();
     await loadNames();
