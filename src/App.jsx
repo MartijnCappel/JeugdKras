@@ -2078,7 +2078,10 @@ function HomeScreen({ user, role, players, trainings, users, onOpenPlayer }) {
     .filter((t) => isInvolvedInTraining(t, user.id, players))
     .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))
     .slice(0, 3);
-  const aandacht = players.filter((p) => p.mood <= 2 || p.fatigue <= 2 || p.physicalCondition <= 2);
+  // Alleen spelers die aan de ingelogde persoon gekoppeld zijn
+  const aandacht = players.filter(
+    (p) => (p.coachIds || []).includes(user.id) && (p.mood <= 2 || p.fatigue <= 2 || p.physicalCondition <= 2)
+  );
   return (
     <div className="p-4 space-y-4">
       <div className="bg-orange-600 text-white rounded-2xl p-4 relative overflow-hidden">
@@ -2108,7 +2111,7 @@ function HomeScreen({ user, role, players, trainings, users, onOpenPlayer }) {
         <div>
           <div className="font-bold text-slate-900 mb-2">Aandachtspunten spelers</div>
           <div className="space-y-2">
-            {aandacht.length === 0 && <div className="text-sm text-stone-400">Geen bijzonderheden.</div>}
+            {aandacht.length === 0 && <div className="text-sm text-stone-400">Geen bijzonderheden bij jouw gekoppelde spelers.</div>}
             {aandacht.map((p) => (
               <button key={p.id} onClick={() => onOpenPlayer(p.id)} className="w-full bg-white rounded-xl p-3 border border-stone-200 flex items-center justify-between text-left">
                 <div>
