@@ -2168,12 +2168,25 @@ function RolePicker({ value, onChange, lockedRoles = [] }) {
 }
 
 function BeheerScreen({ users, currentUserId, tempPasswords = {}, onResetPassword, onApprove, onReject, onChangeStatus, onChangeRole, onDelete }) {
-  const pending = users.filter((u) => u.status === "in afwachting");
-  const active = users.filter((u) => u.status !== "in afwachting");
+  const [search, setSearch] = useState("");
+  const sl = search.trim().toLowerCase();
+  const matches = (u) =>
+    !sl || `${u.firstName} ${u.lastName} ${u.email || ""} ${getRoles(u).join(" ")}`.toLowerCase().includes(sl);
+  const pending = users.filter((u) => u.status === "in afwachting").filter(matches);
+  const active = users.filter((u) => u.status !== "in afwachting").filter(matches);
   const [roleChoice, setRoleChoice] = useState({});
 
   return (
     <div className="p-4 space-y-5">
+      <div className="relative">
+        <Search size={16} className="absolute left-3 top-3 text-stone-400" />
+        <input
+          className="w-full border border-stone-300 rounded-lg pl-9 pr-3 py-2 text-sm bg-white"
+          placeholder="Zoek op naam, e-mail of rol"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </div>
       <div>
         <div className="font-bold text-slate-900 mb-2">Wachten op goedkeuring ({pending.length})</div>
         <div className="space-y-2">
