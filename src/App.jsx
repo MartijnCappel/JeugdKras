@@ -803,7 +803,7 @@ export default function KrasApp() {
     const { data } = await supabase.from("player_next_season").select("*");
     if (!data) return;
     setNextSeason(Object.fromEntries(data.map((r) => [r.player_id, {
-      currentTeam: r.current_team, status: r.status || "", flowTo: r.flow_to, outflow: r.outflow, inflow: r.inflow, note: r.note,
+      currentTeam: r.current_team, status: r.status || (r.outflow ? "uitstroom" : r.inflow ? "instroom" : ""), flowTo: r.flow_to, outflow: r.outflow, inflow: r.inflow, note: r.note,
     }])));
   }
 
@@ -812,7 +812,7 @@ export default function KrasApp() {
     if (!BACKEND) { flash("Volgend seizoen opgeslagen"); return; }
     const { error } = await supabase.from("player_next_season").upsert({
       player_id: playerId, current_team: f.currentTeam || "", status: f.status || "", flow_to: f.status === "doorstroom" ? f.flowTo || "" : "",
-      outflow: !!f.outflow, inflow: !!f.inflow, note: f.note || "",
+      outflow: f.status === "uitstroom", inflow: f.status === "instroom", note: f.note || "",
       updated_by: sessionUserRef.current, updated_at: new Date().toISOString(),
     });
     if (error) flash("Opslaan mislukt: " + error.message);
@@ -2470,10 +2470,16 @@ function NextSeasonCard({ player, teams = [], data, onSave }) {
       </select>
 
       <div className="flex flex-wrap gap-2 mb-3">
-        <button type="button" onClick={() => setF({ ...f, status: f.status === "doorstroom" ? "" : "doorstroom" })} className={chip(f.status === "doorstroom")}>Doorstroom</button>
-        <button type="button" onClick={() => setF({ ...f, status: f.status === "blijft" ? "" : "blijft", flowTo: "" })} className={chip(f.status === "blijft")}>Blijft</button>
-        <button type="button" onClick={() => setF({ ...f, outflow: !f.outflow })} className={chip(f.outflow)}>Uitstroom</button>
-        <button type="button" onClick={() => setF({ ...f, inflow: !f.inflow })} className={chip(f.inflow)}>Instroom</button>
+        {[["doorstroom", "Doorstroom"], ["blijft", "Blijft"], ["uitstroom", "Uitstroom"], ["instroom", "Instroom"]].map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setF({ ...f, status: f.status === key ? "" : key, flowTo: key === "doorstroom" ? f.flowTo : "", outflow: false, inflow: false })}
+            className={chip(f.status === key)}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {f.status === "doorstroom" && (
