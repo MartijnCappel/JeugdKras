@@ -2432,7 +2432,7 @@ function PlayerRow({ p, alertLabels, onOpen }) {
     <button onClick={() => onOpen(p.id)} className="relative w-full bg-white rounded-xl p-3 border border-stone-200 flex items-center justify-between text-left">
       {hasAlert && <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-rose-500 rounded-full" />}
       <div>
-        <div className="font-semibold text-sm text-slate-900">{p.name}</div>
+        <div className="font-semibold text-sm text-slate-900">{p.name}{p.dob && <span className="font-normal text-stone-400"> · {String(p.dob).slice(0, 4)}</span>}</div>
         {hasAlert && <div className="text-[11px] font-semibold text-rose-600">Aangepast naar rood: {alertLabels.join(", ")}</div>}
         <div className="flex flex-wrap gap-1 mt-1">
           {p.positions.map((pos) => <Badge key={pos}>{pos}</Badge>)}
