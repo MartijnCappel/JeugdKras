@@ -5,7 +5,7 @@ import {
   ClipboardList, TrendingUp, LogOut, Send, Check, X, Plus,
   ChevronLeft, ChevronRight, Search, User, Dumbbell, Utensils,
   Brain, HeartPulse, Footprints, AlertCircle, ArrowLeft, Trash2,
-  UserCheck, UserX, ChevronRight as ChevronRightIcon, Eye, Layers
+  UserCheck, UserX, ChevronRight as ChevronRightIcon, Eye, Layers, ArrowLeftRight
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -319,6 +319,7 @@ const TABS = {
   coordinator: [
     { key: "home", label: "Home", icon: Home },
     { key: "spelers", label: "Spelers", icon: Users },
+    { key: "team", label: "Team", icon: ArrowLeftRight },
     { key: "staf", label: "Staf", icon: UserCheck },
     { key: "beheer", label: "Beheer", icon: Shield },
     { key: "trainingen", label: "Trainingen", icon: Calendar },
@@ -328,6 +329,7 @@ const TABS = {
   trainer: [
     { key: "home", label: "Home", icon: Home },
     { key: "spelers", label: "Spelers", icon: Users },
+    { key: "team", label: "Team", icon: ArrowLeftRight },
     { key: "trainingen", label: "Trainingen", icon: Calendar },
     { key: "berichten", label: "Berichten", icon: MessageSquare },
     { key: "meer", label: "Meer", icon: MoreHorizontal },
@@ -335,6 +337,7 @@ const TABS = {
   begeleider: [
     { key: "home", label: "Home", icon: Home },
     { key: "spelers", label: "Spelers", icon: Users },
+    { key: "team", label: "Team", icon: ArrowLeftRight },
     { key: "trainingen", label: "Trainingen", icon: Calendar },
     { key: "berichten", label: "Berichten", icon: MessageSquare },
     { key: "meer", label: "Meer", icon: MoreHorizontal },
@@ -515,6 +518,13 @@ export default function KrasApp() {
   const [tempPasswords, setTempPasswords] = useState({});
   // Volgend seizoen per speler (alleen coordinator en gekoppelde trainer/begeleider)
   const [nextSeason, setNextSeason] = useState({});
+  const [flowRowsDb, setFlowRowsDb] = useState([]);
+  const flowRows = useMemo(() => {
+    if (BACKEND) return flowRowsDb;
+    return players
+      .filter((p) => nextSeason[p.id])
+      .map((p) => ({ playerId: p.id, name: p.name, currentTeam: nextSeason[p.id].currentTeam || (p.teams || [])[0] || "", status: nextSeason[p.id].status || "", flowTo: nextSeason[p.id].flowTo || "" }));
+  }, [BACKEND, flowRowsDb, players, nextSeason]);
   const [authNotice, setAuthNotice] = useState("");
   const [recovery, setRecovery] = useState(false);
   const sessionUserRef = useRef(null);
@@ -799,6 +809,12 @@ export default function KrasApp() {
     if (failed) await loadConversations();
   }
 
+  async function loadFlowRows() {
+    const { data } = await supabase.rpc("team_overview_rows");
+    if (!data) return;
+    setFlowRowsDb(data.map((r) => ({ playerId: r.o_player_id, name: r.o_player_name, currentTeam: r.o_current_team, status: r.o_status || "", flowTo: r.o_flow_to || "" })));
+  }
+
   async function loadNextSeason() {
     const { data } = await supabase.from("player_next_season").select("*");
     if (!data) return;
@@ -811,12 +827,12 @@ export default function KrasApp() {
     setNextSeason((m) => ({ ...m, [playerId]: f }));
     if (!BACKEND) { flash("Volgend seizoen opgeslagen"); return; }
     const { error } = await supabase.from("player_next_season").upsert({
-      player_id: playerId, current_team: f.currentTeam || "", status: f.status || "", flow_to: f.status === "doorstroom" ? f.flowTo || "" : "",
+      player_id: playerId, current_team: f.currentTeam || "", status: f.status || "", flow_to: f.status === "doorstroom" || f.status === "instroom" ? f.flowTo || "" : "",
       outflow: f.status === "uitstroom", inflow: f.status === "instroom", note: f.note || "",
       updated_by: sessionUserRef.current, updated_at: new Date().toISOString(),
     });
     if (error) flash("Opslaan mislukt: " + error.message);
-    else flash("Volgend seizoen opgeslagen");
+    else { flash("Volgend seizoen opgeslagen"); loadFlowRows(); }
   }
 
   async function loadTempPasswords() {
@@ -887,6 +903,11 @@ export default function KrasApp() {
     return null;
   }
 
+  useEffect(() => {
+    if (BACKEND && tab === "team" && sessionUserRef.current) loadFlowRows();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
   // Teams en spelers opnieuw ophalen zodra het Spelers-scherm opent (bv. na een import)
   useEffect(() => {
     if (!BACKEND || tab !== "spelers" || !sessionUserRef.current) return;
@@ -906,6 +927,7 @@ export default function KrasApp() {
     await loadAlerts(userId);
     await loadTempPasswords();
     await loadNextSeason();
+    await loadFlowRows();
   }
 
   async function persistTrainingDiff(oldList, newList) {
@@ -1441,6 +1463,16 @@ export default function KrasApp() {
                   )
                 );
               }}
+            />
+          )}
+
+          {tab === "team" && (role === "coordinator" || role === "trainer" || role === "begeleider") && (
+            <TeamOverviewScreen
+              rows={flowRows}
+              players={shownPlayers}
+              teams={teams}
+              isCoordinator={role === "coordinator"}
+              onOpen={(id) => { setDetailPlayerId(id); setTab("spelers"); markPlayerAlertsSeen(id); }}
             />
           )}
 
@@ -2495,6 +2527,93 @@ function PlayerRow({ p, alertLabels, onOpen }) {
   );
 }
 
+// Teamoverzicht: links komen spelers van andere teams, rechts stromen door, boven uitstroom, onder instroom.
+function TeamOverviewScreen({ rows, players, teams = [], isCoordinator, onOpen }) {
+  const myTeams = isCoordinator
+    ? teams
+    : [...new Set(players.flatMap((p) => p.teams || []))].sort();
+  const [picked, setPicked] = useState(null);
+  const team = myTeams.includes(picked) ? picked : myTeams[0];
+  const accessible = new Set(players.map((p) => p.id));
+  const byName = (a, b) => a.name.localeCompare(b.name, "nl");
+
+  if (!team) {
+    return <div className="p-4 text-sm text-stone-500">Je bent nog niet aan een team gekoppeld.</div>;
+  }
+
+  const rowOf = Object.fromEntries(rows.map((r) => [r.playerId, r]));
+  const inTeam = rows.filter((r) => r.currentTeam === team);
+  const stays = inTeam.filter((r) => r.status === "blijft").sort(byName);
+  const out = inTeam.filter((r) => r.status === "doorstroom").sort(byName);
+  const leaving = inTeam.filter((r) => r.status === "uitstroom").sort(byName);
+  const arriving = rows.filter((r) => r.status === "doorstroom" && r.flowTo === team && r.currentTeam !== team).sort(byName);
+  const joining = rows
+    .filter((r) => r.status === "instroom" && (r.flowTo === team || (!r.flowTo && r.currentTeam === team)))
+    .sort(byName);
+  const undecided = players
+    .filter((p) => {
+      const r = rowOf[p.id];
+      if (r && r.status) return false;
+      return r && r.currentTeam ? r.currentTeam === team : (p.teams || []).includes(team);
+    })
+    .map((p) => ({ playerId: p.id, name: p.name }))
+    .sort(byName);
+
+  const Name = ({ r, suffix }) => {
+    const label = (
+      <>
+        {r.name}
+        {suffix ? <span className="text-stone-400"> ({suffix})</span> : null}
+      </>
+    );
+    return accessible.has(r.playerId) ? (
+      <button onClick={() => onOpen(r.playerId)} className="block w-full text-left text-xs leading-snug py-1 text-slate-900 font-medium underline decoration-stone-300 underline-offset-2">
+        {label}
+      </button>
+    ) : (
+      <div className="text-xs leading-snug py-1 text-slate-700">{label}</div>
+    );
+  };
+  const Box = ({ title, arrow, tone, items, render, className = "" }) => (
+    <div className={`rounded-xl border p-2 ${tone} ${className}`}>
+      <div className="text-[10px] uppercase font-bold tracking-wide text-stone-500 mb-1">
+        {arrow} {title} <span className="text-stone-400">({items.length})</span>
+      </div>
+      {items.length === 0 ? <div className="text-[11px] text-stone-300">—</div> : items.map((r) => <div key={r.playerId}>{render(r)}</div>)}
+    </div>
+  );
+
+  return (
+    <div className="p-3">
+      <div className="flex items-center justify-between mb-2">
+        <div className="font-bold text-slate-900">Teamoverzicht volgend seizoen</div>
+      </div>
+      <div className="flex gap-1.5 overflow-x-auto pb-2 mb-2">
+        {myTeams.map((t) => (
+          <button
+            key={t}
+            onClick={() => setPicked(t)}
+            className={`shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full border ${t === team ? "bg-orange-600 text-white border-orange-600" : "bg-white text-stone-600 border-stone-300"}`}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+
+      <Box title="Uitstroom" arrow="↑" tone="bg-rose-50 border-rose-200" items={leaving} render={(r) => <Name r={r} />} className="mb-2" />
+      <div className="grid grid-cols-3 gap-2 mb-2">
+        <Box title="Komt van" arrow="→" tone="bg-sky-50 border-sky-200" items={arriving} render={(r) => <Name r={r} suffix={r.currentTeam} />} />
+        <Box title={`Blijft ${team}`} arrow="●" tone="bg-orange-50 border-orange-300" items={stays} render={(r) => <Name r={r} />} />
+        <Box title="Doorstroom" arrow="→" tone="bg-emerald-50 border-emerald-200" items={out} render={(r) => <Name r={r} suffix={r.flowTo || "team nog niet bepaald"} />} />
+      </div>
+      <Box title="Instroom" arrow="↓" tone="bg-violet-50 border-violet-200" items={joining} render={(r) => <Name r={r} />} className="mb-2" />
+      {undecided.length > 0 && (
+        <Box title="Nog geen keuze" arrow="?" tone="bg-white border-stone-200" items={undecided} render={(r) => <Name r={r} />} />
+      )}
+    </div>
+  );
+}
+
 // Blokje "Volgend seizoen": alleen voor de coordinator en de gekoppelde trainer of begeleider.
 function NextSeasonCard({ player, teams = [], data, onSave }) {
   const initial = data || { currentTeam: (player.teams || [])[0] || "", status: "", flowTo: "", outflow: false, inflow: false, note: "" };
@@ -2518,7 +2637,7 @@ function NextSeasonCard({ player, teams = [], data, onSave }) {
           <button
             key={key}
             type="button"
-            onClick={() => setF({ ...f, status: f.status === key ? "" : key, flowTo: key === "doorstroom" ? f.flowTo : "", outflow: false, inflow: false })}
+            onClick={() => setF({ ...f, status: f.status === key ? "" : key, flowTo: key === "doorstroom" || key === "instroom" ? f.flowTo : "", outflow: false, inflow: false })}
             className={chip(f.status === key)}
           >
             {label}
@@ -2526,9 +2645,9 @@ function NextSeasonCard({ player, teams = [], data, onSave }) {
         ))}
       </div>
 
-      {f.status === "doorstroom" && (
+      {(f.status === "doorstroom" || f.status === "instroom") && (
         <>
-          <label className="block text-[10px] uppercase font-semibold text-stone-400 mb-1">Doorstroom naar</label>
+          <label className="block text-[10px] uppercase font-semibold text-stone-400 mb-1">{f.status === "instroom" ? "Instroom in team" : "Doorstroom naar"}</label>
           <select className={sel + " mb-3"} value={f.flowTo} onChange={(e) => setF({ ...f, flowTo: e.target.value })}>
             <option value="">Nog niet bepaald</option>
             {teams.map((t) => <option key={t} value={t}>{t}</option>)}
