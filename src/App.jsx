@@ -513,6 +513,8 @@ export default function KrasApp() {
   const [authReady, setAuthReady] = useState(!BACKEND);
   // Tijdelijke wachtwoorden na een reset, per gebruiker, zichtbaar voor wie mag resetten.
   const [tempPasswords, setTempPasswords] = useState({});
+  // Volgend seizoen per speler (alleen coordinator en gekoppelde trainer/begeleider)
+  const [nextSeason, setNextSeason] = useState({});
   const [authNotice, setAuthNotice] = useState("");
   const [recovery, setRecovery] = useState(false);
   const sessionUserRef = useRef(null);
@@ -797,6 +799,26 @@ export default function KrasApp() {
     if (failed) await loadConversations();
   }
 
+  async function loadNextSeason() {
+    const { data } = await supabase.from("player_next_season").select("*");
+    if (!data) return;
+    setNextSeason(Object.fromEntries(data.map((r) => [r.player_id, {
+      currentTeam: r.current_team, flowTo: r.flow_to, outflow: r.outflow, inflow: r.inflow, note: r.note,
+    }])));
+  }
+
+  async function saveNextSeason(playerId, f) {
+    setNextSeason((m) => ({ ...m, [playerId]: f }));
+    if (!BACKEND) { flash("Volgend seizoen opgeslagen"); return; }
+    const { error } = await supabase.from("player_next_season").upsert({
+      player_id: playerId, current_team: f.currentTeam || "", flow_to: f.flowTo || "",
+      outflow: !!f.outflow, inflow: !!f.inflow, note: f.note || "",
+      updated_by: sessionUserRef.current, updated_at: new Date().toISOString(),
+    });
+    if (error) flash("Opslaan mislukt: " + error.message);
+    else flash("Volgend seizoen opgeslagen");
+  }
+
   async function loadTempPasswords() {
     const { data } = await supabase.from("temp_passwords").select("user_id,password");
     if (data) setTempPasswords(Object.fromEntries(data.map((x) => [x.user_id, x.password])));
@@ -879,6 +901,7 @@ export default function KrasApp() {
     await loadConversations(userId);
     await loadAlerts(userId);
     await loadTempPasswords();
+    await loadNextSeason();
   }
 
   async function persistTrainingDiff(oldList, newList) {
@@ -1431,6 +1454,8 @@ export default function KrasApp() {
               onResetPassword={() => resetPassword(players.find((p) => p.id === detailPlayerId)?.userId)}
               onSaveProfile={(f) => saveProfileData(players.find((p) => p.id === detailPlayerId)?.userId, f)}
               teams={teams}
+              nextSeason={nextSeason[detailPlayerId]}
+              onSaveNextSeason={(f) => saveNextSeason(detailPlayerId, f)}
               onToggleTeam={(team) => {
                 setPlayers((ps) =>
                   ps.map((p) => {
@@ -2426,7 +2451,55 @@ function PlayerRow({ p, alertLabels, onOpen }) {
   );
 }
 
-function SpelerDetailScreen({ player, users, viewerId, tempPassword, onResetPassword, onSaveProfile, teams = [], onToggleTeam, onAddTeam, logbook, trainings, canEdit, viewerRole, onBack, onAddLog, onToggleCoach, onTogglePosition, onUpdateCondition, onToggleModule, onUpdateTvs, onDeleteLog }) {
+// Blokje "Volgend seizoen": alleen voor de coordinator en de gekoppelde trainer of begeleider.
+function NextSeasonCard({ player, teams = [], data, onSave }) {
+  const initial = data || { currentTeam: (player.teams || [])[0] || "", flowTo: "", outflow: false, inflow: false, note: "" };
+  const [f, setF] = useState(initial);
+  const dirty = JSON.stringify(f) !== JSON.stringify(initial);
+  const sel = "w-full border border-stone-300 rounded-lg px-2 py-1.5 text-sm bg-white";
+  const chip = (on) => `text-xs font-semibold px-3 py-1.5 rounded-full border ${on ? "bg-orange-600 text-white border-orange-600" : "bg-white text-stone-600 border-stone-300"}`;
+  return (
+    <div className="mt-5 bg-white rounded-2xl border border-stone-200 p-4">
+      <div className="font-bold text-slate-900">Volgend seizoen</div>
+      <div className="text-[11px] text-stone-400 mb-3">Alleen zichtbaar voor de gekoppelde trainer, begeleider en coördinator.</div>
+
+      <label className="block text-[10px] uppercase font-semibold text-stone-400 mb-1">Huidig team</label>
+      <select className={sel + " mb-3"} value={f.currentTeam} onChange={(e) => setF({ ...f, currentTeam: e.target.value })}>
+        <option value="">Kies een team</option>
+        {teams.map((t) => <option key={t} value={t}>{t}</option>)}
+      </select>
+
+      <label className="block text-[10px] uppercase font-semibold text-stone-400 mb-1">Doorstroom naar</label>
+      <select className={sel + " mb-3"} value={f.flowTo} onChange={(e) => setF({ ...f, flowTo: e.target.value })}>
+        <option value="">Nog niet bepaald</option>
+        {teams.map((t) => <option key={t} value={t}>{t}</option>)}
+      </select>
+
+      <div className="flex gap-2 mb-3">
+        <button type="button" onClick={() => setF({ ...f, outflow: !f.outflow })} className={chip(f.outflow)}>Uitstroom</button>
+        <button type="button" onClick={() => setF({ ...f, inflow: !f.inflow })} className={chip(f.inflow)}>Instroom</button>
+      </div>
+
+      <label className="block text-[10px] uppercase font-semibold text-stone-400 mb-1">Opmerking</label>
+      <textarea
+        className={sel + " mb-3"}
+        rows={3}
+        value={f.note}
+        onChange={(e) => setF({ ...f, note: e.target.value })}
+        placeholder="Bijvoorbeeld: gaat mee trainen met HA, wil graag bij HS2 blijven…"
+      />
+      <button
+        disabled={!dirty}
+        onClick={() => onSave(f)}
+        className={`w-full text-sm font-semibold py-2 rounded-lg ${dirty ? "bg-orange-600 text-white" : "bg-stone-100 text-stone-400"}`}
+      >
+        {dirty ? "Opslaan" : "Opgeslagen"}
+      </button>
+    </div>
+  );
+}
+
+function SpelerDetailScreen({ player, users, viewerId, tempPassword, onResetPassword, onSaveProfile, nextSeason, onSaveNextSeason, teams = [], onToggleTeam, onAddTeam, logbook, trainings, canEdit, viewerRole, onBack, onAddLog, onToggleCoach, onTogglePosition, onUpdateCondition, onToggleModule, onUpdateTvs, onDeleteLog }) {
   const [showAddLog, setShowAddLog] = useState(false);
   const [confirmDeleteLogId, setConfirmDeleteLogId] = useState(null);
   const canDeleteLog = viewerRole === "trainer" || viewerRole === "begeleider" || viewerRole === "specialist";
@@ -2784,6 +2857,10 @@ function SpelerDetailScreen({ player, users, viewerId, tempPassword, onResetPass
           ))}
         </div>
       </div>
+
+      {(viewerRole === "coordinator" || ((viewerRole === "trainer" || viewerRole === "begeleider") && (player.coachIds || []).includes(viewerId))) && (
+        <NextSeasonCard key={player.id + (data ? "+" : "-")} player={player} teams={teams} data={nextSeason} onSave={onSaveNextSeason} />
+      )}
 
       {showAddLog && (
         <AddLogModal
