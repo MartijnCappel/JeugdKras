@@ -1428,6 +1428,7 @@ export default function KrasApp() {
           {tab === "staf" && role === "coordinator" && (
             <StafScreen
               users={users}
+              onSaveProfile={saveProfileData}
               players={shownPlayers}
               onTogglePlayerCoach={(staffId, playerId) => {
                 setPlayers((ps) =>
@@ -2314,8 +2315,9 @@ function BeheerScreen({ users, currentUserId, tempPasswords = {}, onResetPasswor
 // Staf — koppel spelers aan trainers/begeleiders/specialisten (coördinator)
 // ---------------------------------------------------------------------------
 
-function StafScreen({ users, players, onTogglePlayerCoach }) {
+function StafScreen({ users, players, onTogglePlayerCoach, onSaveProfile }) {
   const [openStaffId, setOpenStaffId] = useState(null);
+  const [editingId, setEditingId] = useState(null);
   const [search, setSearch] = useState("");
   const sl = search.trim().toLowerCase();
   const staffUsers = users
@@ -2351,6 +2353,21 @@ function StafScreen({ users, players, onTogglePlayerCoach }) {
               </button>
               {open && (
                 <div className="border-t border-stone-100 p-3 space-y-1">
+                  {editingId === u.id ? (
+                    <ProfileEditForm
+                      initial={{ firstName: u.firstName, lastName: u.lastName, city: u.city || "", dob: u.dob || "", email: u.email || "" }}
+                      showEmail
+                      onSave={async (f) => { const r = await onSaveProfile(u.id, f); if (!r || r.ok) setEditingId(null); return r; }}
+                      onCancel={() => setEditingId(null)}
+                    />
+                  ) : (
+                    <div className="flex items-center justify-between pb-2 mb-1 border-b border-stone-100">
+                      <div className="text-xs text-stone-500 truncate">{u.email}{u.city ? " · " + u.city : ""}</div>
+                      <button onClick={() => setEditingId(u.id)} className="shrink-0 ml-2 text-xs font-semibold text-orange-700 bg-orange-50 rounded-lg px-3 py-1.5">
+                        Gegevens bewerken
+                      </button>
+                    </div>
+                  )}
                   {players.map((p) => {
                     const linked = p.coachIds.includes(u.id);
                     return (
