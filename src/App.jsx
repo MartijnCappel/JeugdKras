@@ -850,12 +850,16 @@ export default function KrasApp() {
     if (BACKEND) {
       const { error } = await supabase.from("profiles").update(clean).eq("id", targetUserId);
       if (error) return "Opslaan mislukt: " + error.message;
-      if (f.email !== undefined && targetUserId === currentUserId) {
+      if (f.email !== undefined) {
         const target = users.find((u) => u.id === targetUserId);
-        if (target && f.email.trim() && f.email.trim() !== target.email) {
-          const { error: e2 } = await supabase.auth.updateUser({ email: f.email.trim() });
+        const newMail = f.email.trim();
+        if (target && newMail && newMail.toLowerCase() !== (target.email || "").toLowerCase()) {
+          const { error: e2 } = await supabase.rpc("change_user_email", { target: targetUserId, new_email: newMail });
           if (e2) return "Gegevens opgeslagen, maar het e-mailadres wijzigen mislukt: " + e2.message;
-          note = " Je e-mailadres wijzigt na bevestiging via de mail die je ontvangt.";
+          note = targetUserId === currentUserId
+            ? " Je logt voortaan in met je nieuwe e-mailadres."
+            : " Er is geen bevestigingsmail verstuurd: de persoon logt voortaan in met het nieuwe e-mailadres.";
+          if (targetUserId === currentUserId) await supabase.auth.refreshSession();
         }
       }
       await loadProfiles();
@@ -1392,6 +1396,7 @@ export default function KrasApp() {
               currentUserId={currentUser.id}
               tempPasswords={tempPasswords}
               onResetPassword={resetPassword}
+              onSaveProfile={saveProfileData}
               onApprove={(id, newRoles) => {
                 const roles = sortRoles(newRoles);
                 if (BACKEND) { dbUpdateProfile(id, { roles, status: "actief" }, "Account goedgekeurd"); return; }
@@ -2197,7 +2202,7 @@ function RolePicker({ value, onChange, lockedRoles = [] }) {
   );
 }
 
-function BeheerScreen({ users, currentUserId, tempPasswords = {}, onResetPassword, onApprove, onReject, onChangeStatus, onChangeRole, onDelete }) {
+function BeheerScreen({ users, currentUserId, tempPasswords = {}, onResetPassword, onSaveProfile, onApprove, onReject, onChangeStatus, onChangeRole, onDelete }) {
   const [search, setSearch] = useState("");
   const sl = search.trim().toLowerCase();
   const matches = (u) =>
@@ -2205,6 +2210,7 @@ function BeheerScreen({ users, currentUserId, tempPasswords = {}, onResetPasswor
   const pending = users.filter((u) => u.status === "in afwachting").filter(matches);
   const active = users.filter((u) => u.status !== "in afwachting").filter(matches);
   const [roleChoice, setRoleChoice] = useState({});
+  const [editingId, setEditingId] = useState(null);
 
   return (
     <div className="p-4 space-y-5">
@@ -2260,6 +2266,18 @@ function BeheerScreen({ users, currentUserId, tempPasswords = {}, onResetPasswor
                 </button>
               </div>
               {tempPasswords[u.id] && <TempPasswordBox password={tempPasswords[u.id]} />}
+              {editingId === u.id ? (
+                <ProfileEditForm
+                  initial={{ firstName: u.firstName, lastName: u.lastName, city: u.city || "", dob: u.dob || "", email: u.email || "" }}
+                  showEmail
+                  onSave={async (f) => { const r = await onSaveProfile(u.id, f); if (!r || r.ok) setEditingId(null); return r; }}
+                  onCancel={() => setEditingId(null)}
+                />
+              ) : (
+                <button onClick={() => setEditingId(u.id)} className="text-xs font-semibold text-orange-700 bg-orange-50 rounded-lg px-3 py-1.5 mb-2 mr-2">
+                  Gegevens bewerken
+                </button>
+              )}
               <button
                 onClick={() => { if (confirm(`Wachtwoord van ${u.firstName} ${u.lastName} resetten?`)) onResetPassword(u.id); }}
                 className="text-xs font-semibold text-stone-600 bg-stone-100 rounded-lg px-3 py-1.5 mb-3"
@@ -2546,7 +2564,8 @@ function SpelerDetailScreen({ player, users, viewerId, tempPassword, onResetPass
         </div>
         {editingProfile ? (
           <ProfileEditForm
-            initial={{ firstName: (users.find((u) => u.id === player.userId) || {}).firstName || player.name.split(" ")[0], lastName: (users.find((u) => u.id === player.userId) || {}).lastName || player.name.split(" ").slice(1).join(" "), city: player.city || "", dob: player.dob || "" }}
+            initial={{ firstName: (users.find((u) => u.id === player.userId) || {}).firstName || player.name.split(" ")[0], lastName: (users.find((u) => u.id === player.userId) || {}).lastName || player.name.split(" ").slice(1).join(" "), city: player.city || "", dob: player.dob || "", email: (users.find((u) => u.id === player.userId) || {}).email || "" }}
+            showEmail
             onSave={async (f) => { const r = await onSaveProfile(f); if (!r || r.ok) setEditingProfile(false); return r; }}
             onCancel={() => setEditingProfile(false)}
           />
