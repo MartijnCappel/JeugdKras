@@ -2273,13 +2273,27 @@ function BeheerScreen({ users, currentUserId, tempPasswords = {}, onResetPasswor
 
 function StafScreen({ users, players, onTogglePlayerCoach }) {
   const [openStaffId, setOpenStaffId] = useState(null);
-  const staffUsers = users.filter((u) => isLinkableStaff(u));
+  const [search, setSearch] = useState("");
+  const sl = search.trim().toLowerCase();
+  const staffUsers = users
+    .filter((u) => isLinkableStaff(u))
+    .filter((u) => !sl || `${u.firstName} ${u.lastName} ${roleDisplay(u)}`.toLowerCase().includes(sl));
 
   return (
     <div className="p-4">
       <div className="font-bold text-slate-900 mb-1">Trainers, begeleiders &amp; specialisten</div>
       <div className="text-xs text-stone-400 mb-3">Tik op iemand om spelers aan hem/haar toe te kennen.</div>
+      <div className="relative mb-3">
+        <Search size={16} className="absolute left-3 top-3 text-stone-400" />
+        <input
+          className="w-full border border-stone-300 rounded-lg pl-9 pr-3 py-2 text-sm bg-white"
+          placeholder="Zoek op naam of rol"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </div>
       <div className="space-y-2">
+        {staffUsers.length === 0 && <div className="text-sm text-stone-400">Niemand gevonden.</div>}
         {staffUsers.map((u) => {
           const linkedCount = players.filter((p) => p.coachIds.includes(u.id)).length;
           const open = openStaffId === u.id;
