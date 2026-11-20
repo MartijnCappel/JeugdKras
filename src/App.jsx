@@ -2859,7 +2859,7 @@ function SpelerDetailScreen({ player, users, viewerId, tempPassword, onResetPass
       </div>
 
       {(viewerRole === "coordinator" || ((viewerRole === "trainer" || viewerRole === "begeleider") && (player.coachIds || []).includes(viewerId))) && (
-        <NextSeasonCard key={player.id + (data ? "+" : "-")} player={player} teams={teams} data={nextSeason} onSave={onSaveNextSeason} />
+        <NextSeasonCard key={player.id + (nextSeason ? "+" : "-")} player={player} teams={teams} data={nextSeason} onSave={onSaveNextSeason} />
       )}
 
       {showAddLog && (
