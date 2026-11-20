@@ -1429,6 +1429,8 @@ export default function KrasApp() {
             <StafScreen
               users={users}
               onSaveProfile={saveProfileData}
+              tempPasswords={tempPasswords}
+              onResetPassword={resetPassword}
               players={shownPlayers}
               onTogglePlayerCoach={(staffId, playerId) => {
                 setPlayers((ps) =>
@@ -2315,7 +2317,7 @@ function BeheerScreen({ users, currentUserId, tempPasswords = {}, onResetPasswor
 // Staf — koppel spelers aan trainers/begeleiders/specialisten (coördinator)
 // ---------------------------------------------------------------------------
 
-function StafScreen({ users, players, onTogglePlayerCoach, onSaveProfile }) {
+function StafScreen({ users, players, onTogglePlayerCoach, onSaveProfile, tempPasswords = {}, onResetPassword }) {
   const [openStaffId, setOpenStaffId] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [search, setSearch] = useState("");
@@ -2368,6 +2370,13 @@ function StafScreen({ users, players, onTogglePlayerCoach, onSaveProfile }) {
                       </button>
                     </div>
                   )}
+                  {tempPasswords[u.id] && <TempPasswordBox password={tempPasswords[u.id]} />}
+                  <button
+                    onClick={() => { if (confirm(`Wachtwoord van ${u.firstName} ${u.lastName} resetten?`)) onResetPassword(u.id); }}
+                    className="text-xs font-semibold text-stone-600 bg-stone-100 rounded-lg px-3 py-1.5 mb-2"
+                  >
+                    Wachtwoord resetten
+                  </button>
                   {players.map((p) => {
                     const linked = p.coachIds.includes(u.id);
                     return (
