@@ -803,7 +803,7 @@ export default function KrasApp() {
     const { data } = await supabase.from("player_next_season").select("*");
     if (!data) return;
     setNextSeason(Object.fromEntries(data.map((r) => [r.player_id, {
-      currentTeam: r.current_team, flowTo: r.flow_to, outflow: r.outflow, inflow: r.inflow, note: r.note,
+      currentTeam: r.current_team, status: r.status || "", flowTo: r.flow_to, outflow: r.outflow, inflow: r.inflow, note: r.note,
     }])));
   }
 
@@ -811,7 +811,7 @@ export default function KrasApp() {
     setNextSeason((m) => ({ ...m, [playerId]: f }));
     if (!BACKEND) { flash("Volgend seizoen opgeslagen"); return; }
     const { error } = await supabase.from("player_next_season").upsert({
-      player_id: playerId, current_team: f.currentTeam || "", flow_to: f.flowTo || "",
+      player_id: playerId, current_team: f.currentTeam || "", status: f.status || "", flow_to: f.status === "doorstroom" ? f.flowTo || "" : "",
       outflow: !!f.outflow, inflow: !!f.inflow, note: f.note || "",
       updated_by: sessionUserRef.current, updated_at: new Date().toISOString(),
     });
@@ -2453,7 +2453,7 @@ function PlayerRow({ p, alertLabels, onOpen }) {
 
 // Blokje "Volgend seizoen": alleen voor de coordinator en de gekoppelde trainer of begeleider.
 function NextSeasonCard({ player, teams = [], data, onSave }) {
-  const initial = data || { currentTeam: (player.teams || [])[0] || "", flowTo: "", outflow: false, inflow: false, note: "" };
+  const initial = data || { currentTeam: (player.teams || [])[0] || "", status: "", flowTo: "", outflow: false, inflow: false, note: "" };
   const [f, setF] = useState(initial);
   const dirty = JSON.stringify(f) !== JSON.stringify(initial);
   const sel = "w-full border border-stone-300 rounded-lg px-2 py-1.5 text-sm bg-white";
@@ -2469,16 +2469,22 @@ function NextSeasonCard({ player, teams = [], data, onSave }) {
         {teams.map((t) => <option key={t} value={t}>{t}</option>)}
       </select>
 
-      <label className="block text-[10px] uppercase font-semibold text-stone-400 mb-1">Doorstroom naar</label>
-      <select className={sel + " mb-3"} value={f.flowTo} onChange={(e) => setF({ ...f, flowTo: e.target.value })}>
-        <option value="">Nog niet bepaald</option>
-        {teams.map((t) => <option key={t} value={t}>{t}</option>)}
-      </select>
-
-      <div className="flex gap-2 mb-3">
+      <div className="flex flex-wrap gap-2 mb-3">
+        <button type="button" onClick={() => setF({ ...f, status: f.status === "doorstroom" ? "" : "doorstroom" })} className={chip(f.status === "doorstroom")}>Doorstroom</button>
+        <button type="button" onClick={() => setF({ ...f, status: f.status === "blijft" ? "" : "blijft", flowTo: "" })} className={chip(f.status === "blijft")}>Blijft</button>
         <button type="button" onClick={() => setF({ ...f, outflow: !f.outflow })} className={chip(f.outflow)}>Uitstroom</button>
         <button type="button" onClick={() => setF({ ...f, inflow: !f.inflow })} className={chip(f.inflow)}>Instroom</button>
       </div>
+
+      {f.status === "doorstroom" && (
+        <>
+          <label className="block text-[10px] uppercase font-semibold text-stone-400 mb-1">Doorstroom naar</label>
+          <select className={sel + " mb-3"} value={f.flowTo} onChange={(e) => setF({ ...f, flowTo: e.target.value })}>
+            <option value="">Nog niet bepaald</option>
+            {teams.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </>
+      )}
 
       <label className="block text-[10px] uppercase font-semibold text-stone-400 mb-1">Opmerking</label>
       <textarea
