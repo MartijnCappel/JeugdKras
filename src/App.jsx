@@ -878,6 +878,38 @@ export default function KrasApp() {
     flash("Wachtwoord gereset");
   }
 
+  // Coördinator voegt een nieuwe persoon toe met een tijdelijk wachtwoord
+  async function addPerson(f) {
+    const first = f.firstName.trim();
+    const last = f.lastName.trim();
+    if (!first || !last) return "Vul een voor- en achternaam in.";
+    if (!f.roles.length) return "Kies minstens één rol.";
+    const email = (f.email || "").trim() || defaultLoginEmail(first, last);
+    if (BACKEND) {
+      const { data, error } = await supabase.rpc("admin_create_user", {
+        p_first: first, p_last: last, p_email: email, p_roles: sortRoles(f.roles),
+        p_dob: f.dob || null, p_city: f.city.trim() || null, p_team: f.team || null,
+      });
+      if (error) return "Toevoegen mislukt: " + error.message;
+      await loadProfiles();
+      await loadPlayers();
+      await loadTeams();
+      await loadTempPasswords();
+      await loadStaffTeams();
+      return { ok: true, user: { firstName: first, lastName: last, email: data.email }, password: data.password };
+    }
+    if (users.some((u) => (u.email || "").toLowerCase() === email.toLowerCase())) return "Dit e-mailadres is al in gebruik.";
+    const uid = newId("u");
+    const roles = sortRoles(f.roles);
+    setUsers((us) => [...us, { id: uid, firstName: first, lastName: last, email, role: roles[0], roles, status: "actief", city: f.city.trim(), dob: f.dob || "" }]);
+    if (roles.includes("speler")) {
+      setPlayers((ps) => [...ps, { id: newId("p"), userId: uid, name: `${first} ${last}`, city: f.city.trim(), dob: f.dob || null, positions: [], teams: f.team ? [f.team] : [], mood: 3, fatigue: 3, physicalCondition: 3, coachIds: [] }]);
+    }
+    const pw = randomPassword();
+    setTempPasswords((t) => ({ ...t, [uid]: pw }));
+    return { ok: true, user: { firstName: first, lastName: last, email }, password: pw };
+  }
+
   // Eigen gegevens (Meer-scherm) of die van een speler (door trainer/begeleider/coördinator)
   async function saveProfileData(targetUserId, f) {
     const clean = { first_name: f.firstName.trim(), last_name: f.lastName.trim(), city: f.city.trim() || null, dob: f.dob || null };
@@ -1442,6 +1474,8 @@ export default function KrasApp() {
               tempPasswords={tempPasswords}
               onResetPassword={resetPassword}
               onSaveProfile={saveProfileData}
+              teams={teams}
+              onAddPerson={addPerson}
               onApprove={(id, newRoles) => {
                 const roles = sortRoles(newRoles);
                 if (BACKEND) { dbUpdateProfile(id, { roles, status: "actief" }, "Account goedgekeurd"); return; }
@@ -2266,7 +2300,7 @@ function RolePicker({ value, onChange, lockedRoles = [] }) {
   );
 }
 
-function BeheerScreen({ users, currentUserId, tempPasswords = {}, onResetPassword, onSaveProfile, onApprove, onReject, onChangeStatus, onChangeRole, onDelete }) {
+function BeheerScreen({ users, currentUserId, tempPasswords = {}, onResetPassword, onSaveProfile, teams = [], onAddPerson, onApprove, onReject, onChangeStatus, onChangeRole, onDelete }) {
   const [search, setSearch] = useState("");
   const sl = search.trim().toLowerCase();
   const matches = (u) =>
@@ -2278,6 +2312,7 @@ function BeheerScreen({ users, currentUserId, tempPasswords = {}, onResetPasswor
 
   return (
     <div className="p-4 space-y-5">
+      <NewPersonCard teams={teams} onAdd={onAddPerson} />
       <div className="relative">
         <Search size={16} className="absolute left-3 top-3 text-stone-400" />
         <input
@@ -4295,6 +4330,98 @@ function ChatScreen({ convo, currentUser, users, onBack, onSend }) {
 // ---------------------------------------------------------------------------
 // Meer / Profiel
 // ---------------------------------------------------------------------------
+
+function defaultLoginEmail(first, last) {
+  const base = (first + last).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  return base + "@handbalvolendam.nl";
+}
+
+// Coördinator: nieuwe persoon toevoegen (speler of staf) met tijdelijk wachtwoord
+function NewPersonCard({ teams = [], onAdd }) {
+  const empty = { firstName: "", lastName: "", dob: "", city: "", email: "", roles: ["speler"], team: "" };
+  const [open, setOpen] = useState(false);
+  const [f, setF] = useState(empty);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [done, setDone] = useState(null);
+  const inp = "w-full border border-stone-300 rounded-lg px-3 py-1.5 text-sm bg-white";
+  const lbl = "text-[10px] uppercase font-semibold text-stone-400";
+  const preview = f.firstName.trim() && f.lastName.trim() ? defaultLoginEmail(f.firstName, f.lastName) : "voornaamachternaam@handbalvolendam.nl";
+  const toggleRole = (r) => setF((x) => ({ ...x, roles: x.roles.includes(r) ? x.roles.filter((y) => y !== r) : [...x.roles, r] }));
+
+  if (!open) {
+    return (
+      <button onClick={() => { setOpen(true); setDone(null); setErr(""); setF(empty); }} className="flex items-center gap-1.5 text-sm font-semibold text-white bg-orange-600 rounded-lg px-4 py-2">
+        <Plus size={16} /> Nieuwe persoon
+      </button>
+    );
+  }
+  if (done) {
+    return (
+      <div className="bg-white border border-stone-200 rounded-2xl p-4">
+        <div className="font-bold text-slate-900 mb-1">{done.user.firstName} {done.user.lastName} is toegevoegd</div>
+        <div className="text-xs text-stone-500 mb-2">Inloggen met <span className="font-semibold">{done.user.email}</span>. Kopieer het bericht en stuur het door.</div>
+        <TempPasswordBox password={done.password} user={done.user} />
+        <div className="flex gap-2">
+          <button onClick={() => { setDone(null); setF(empty); }} className="text-sm font-semibold text-orange-700 bg-orange-50 rounded-lg px-4 py-2">Nog iemand toevoegen</button>
+          <button onClick={() => { setOpen(false); setDone(null); }} className="text-sm font-semibold text-stone-600 bg-stone-100 rounded-lg px-4 py-2">Sluiten</button>
+        </div>
+      </div>
+    );
+  }
+  const needsTeam = f.roles.some((r) => r === "speler" || r === "trainer" || r === "begeleider");
+  return (
+    <div className="bg-white border border-stone-200 rounded-2xl p-4">
+      <div className="font-bold text-slate-900 mb-3">Nieuwe persoon toevoegen</div>
+      <div className="grid grid-cols-2 gap-2 mb-2">
+        <div><label className={lbl}>Voornaam</label><input className={inp} value={f.firstName} onChange={(e) => setF({ ...f, firstName: e.target.value })} /></div>
+        <div><label className={lbl}>Achternaam</label><input className={inp} value={f.lastName} onChange={(e) => setF({ ...f, lastName: e.target.value })} /></div>
+        <div><label className={lbl}>Geboortedatum</label><input type="date" className={inp} value={f.dob} onChange={(e) => setF({ ...f, dob: e.target.value })} /></div>
+        <div><label className={lbl}>Woonplaats</label><input className={inp} value={f.city} onChange={(e) => setF({ ...f, city: e.target.value })} /></div>
+      </div>
+      <div className="mb-2">
+        <label className={lbl}>E-mailadres (leeg laten = {preview})</label>
+        <input type="email" className={inp} value={f.email} placeholder={preview} onChange={(e) => setF({ ...f, email: e.target.value })} />
+      </div>
+      <div className="mb-2">
+        <div className={lbl + " mb-1"}>Rol(len)</div>
+        <div className="flex flex-wrap gap-1.5">
+          {Object.entries(ROLE_LABEL).map(([r, l]) => (
+            <button key={r} type="button" onClick={() => toggleRole(r)}
+              className={`text-xs font-semibold px-3 py-1.5 rounded-full border ${f.roles.includes(r) ? "bg-orange-600 text-white border-orange-600" : "bg-white text-stone-600 border-stone-300"}`}>
+              {l}
+            </button>
+          ))}
+        </div>
+      </div>
+      {needsTeam && (
+        <div className="mb-2">
+          <label className={lbl}>Team (optioneel)</label>
+          <select className={inp} value={f.team} onChange={(e) => setF({ ...f, team: e.target.value })}>
+            <option value="">Geen team</option>
+            {teams.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+      )}
+      {err && <div className="text-xs text-rose-600 mb-2">{err}</div>}
+      <div className="flex gap-2">
+        <button
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true); setErr("");
+            const r = await onAdd(f);
+            setBusy(false);
+            if (typeof r === "string") setErr(r); else setDone(r);
+          }}
+          className="text-sm font-semibold text-white bg-orange-600 rounded-lg px-4 py-2 disabled:opacity-50"
+        >
+          {busy ? "Bezig…" : "Toevoegen"}
+        </button>
+        <button onClick={() => setOpen(false)} className="text-sm font-semibold text-stone-600 bg-stone-100 rounded-lg px-4 py-2">Annuleren</button>
+      </div>
+    </div>
+  );
+}
 
 function TempPasswordBox({ password, user }) {
   const [copied, setCopied] = useState(false);
