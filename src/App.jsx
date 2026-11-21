@@ -476,7 +476,7 @@ export default function KrasApp() {
   const [detailSchemaId, setDetailSchemaId] = useState(null);
   const [detailTrainingId, setDetailTrainingId] = useState(null);
   const [activeConvoId, setActiveConvoId] = useState(null);
-  const [weekAnchor, setWeekAnchor] = useState(() => startOfWeek(new Date("2026-09-14")));
+  const [weekAnchor, setWeekAnchor] = useState(() => startOfWeek(new Date()));
   const [toast, setToast] = useState("");
   const [chatReadCounts, setChatReadCounts] = useState({});
   const [seenConversationCounts, setSeenConversationCounts] = useState({});
@@ -3256,6 +3256,16 @@ function TrainingenScreen({ trainings, players, users, currentUser, chatReadCoun
   });
   const weekTrainings = visibleTrainings.filter((t) => weekDays.some((d) => toISODateLocal(d) === t.date));
   const sorted = visibleTrainings.slice().sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+  const todayISO = toISODateLocal(new Date());
+  const first = weekDays[0];
+  const last = weekDays[6];
+  const monthOf = (d, withYear) => d.toLocaleDateString("nl-NL", withYear ? { month: "long", year: "numeric" } : { month: "long" });
+  const monthLabel =
+    first.getFullYear() !== last.getFullYear()
+      ? `${monthOf(first, true)} – ${monthOf(last, true)}`
+      : first.getMonth() !== last.getMonth()
+      ? `${monthOf(first)} – ${monthOf(last)} ${last.getFullYear()}`
+      : monthOf(first, true);
 
   return (
     <div className="p-4">
@@ -3278,9 +3288,12 @@ function TrainingenScreen({ trainings, players, users, currentUser, chatReadCoun
         <button onClick={() => setWeekAnchor((d) => { const nd = new Date(d); nd.setDate(nd.getDate() - 7); return nd; })}>
           <ChevronLeft size={18} />
         </button>
-        <button onClick={() => setWeekAnchor(startOfWeek(new Date("2026-09-14")))} className="text-xs font-semibold text-orange-600">
-          Vandaag
-        </button>
+        <div className="text-center">
+          <div className="text-sm font-bold text-slate-900 capitalize">{monthLabel}</div>
+          <button onClick={() => setWeekAnchor(startOfWeek(new Date()))} className="text-[11px] font-semibold text-orange-600">
+            Vandaag
+          </button>
+        </div>
         <button onClick={() => setWeekAnchor((d) => { const nd = new Date(d); nd.setDate(nd.getDate() + 7); return nd; })}>
           <ChevronRight size={18} />
         </button>
@@ -3289,10 +3302,12 @@ function TrainingenScreen({ trainings, players, users, currentUser, chatReadCoun
         {weekDays.map((d) => {
           const iso = toISODateLocal(d);
           const has = weekTrainings.some((t) => t.date === iso);
+          const isToday = iso === todayISO;
           return (
-            <div key={iso} className={`text-center rounded-lg py-2 ${has ? "bg-orange-100" : "bg-white border border-stone-200"}`}>
-              <div className="text-[10px] text-stone-500">{DAY_NAMES[d.getDay()]}</div>
+            <div key={iso} className={`text-center rounded-lg py-2 border ${isToday ? "bg-orange-100 border-orange-300" : "bg-white border-stone-200"}`}>
+              <div className={`text-[10px] ${isToday ? "text-orange-700 font-semibold" : "text-stone-500"}`}>{DAY_NAMES[d.getDay()]}</div>
               <div className="text-sm font-semibold text-slate-900">{d.getDate()}</div>
+              <div className={`mx-auto mt-0.5 w-1.5 h-1.5 rounded-full ${has ? "bg-orange-500" : "bg-transparent"}`} />
             </div>
           );
         })}
