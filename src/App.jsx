@@ -819,6 +819,20 @@ export default function KrasApp() {
     if (failed) await loadConversations();
   }
 
+  // Sleepactie in het teamoverzicht: zet de keuze volgend seizoen van een speler
+  function moveTeamPlayer(playerId, kind, team, flowTo) {
+    const cur = nextSeason[playerId] || {};
+    const row = flowRows.find((r) => r.playerId === playerId) || {};
+    saveNextSeason(playerId, {
+      currentTeam: cur.currentTeam || row.currentTeam || team,
+      status: kind === "geen" ? "" : kind,
+      flowTo: kind === "doorstroom" ? flowTo || "" : kind === "instroom" ? team : "",
+      outflow: false,
+      inflow: false,
+      note: cur.note || "",
+    });
+  }
+
   async function loadStaffTeams() {
     const { data } = await supabase.from("staff_teams").select("staff_id, team");
     if (!data) return;
@@ -853,6 +867,7 @@ export default function KrasApp() {
 
   async function saveNextSeason(playerId, f) {
     setNextSeason((m) => ({ ...m, [playerId]: f }));
+    setFlowRowsDb((rs) => rs.map((r) => (r.playerId === playerId ? { ...r, currentTeam: f.currentTeam || r.currentTeam, status: f.status || "", flowTo: f.flowTo || "" } : r)));
     if (!BACKEND) { flash("Volgend seizoen opgeslagen"); return; }
     const { error } = await supabase.from("player_next_season").upsert({
       player_id: playerId, current_team: f.currentTeam || "", status: f.status || "", flow_to: f.status === "doorstroom" || f.status === "instroom" ? f.flowTo || "" : "",
@@ -1541,6 +1556,7 @@ export default function KrasApp() {
               teams={teams}
               assignedTeams={(currentUser && staffTeams[currentUser.id]) || []}
               isCoordinator={role === "coordinator"}
+              onMove={moveTeamPlayer}
               onOpen={(id) => { setDetailPlayerId(id); setTab("spelers"); markPlayerAlertsSeen(id); }}
             />
           )}
@@ -2625,11 +2641,49 @@ function PlayerRow({ p, alertLabels, onOpen }) {
 }
 
 // Teamoverzicht: links komen spelers van andere teams, rechts stromen door, boven uitstroom, onder instroom.
-function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isCoordinator, onOpen }) {
+function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isCoordinator, onOpen, onMove }) {
   const derived = [...new Set(players.flatMap((p) => p.teams || []))].sort();
   const myTeams = isCoordinator ? teams : BACKEND || assignedTeams.length ? assignedTeams : derived;
   const [picked, setPicked] = useState(null);
+  const [drag, setDrag] = useState(null); // { id, name, x, y }
+  const [hover, setHover] = useState(null);
+  const [pending, setPending] = useState(null); // speler die moet kiezen naar welk team
   const team = myTeams.includes(picked) ? picked : myTeams[0];
+  const dropAt = (x, y) => {
+    const el = document.elementFromPoint(x, y);
+    const box = el && el.closest ? el.closest("[data-drop]") : null;
+    return box ? box.getAttribute("data-drop") : null;
+  };
+  const startDrag = (e, r) => {
+    e.preventDefault();
+    setDrag({ id: r.playerId, name: r.name, x: e.clientX, y: e.clientY });
+  };
+  const dragId = drag ? drag.id : null;
+  const dragName = drag ? drag.name : "";
+  useEffect(() => {
+    if (!dragId) return undefined;
+    const move = (e) => {
+      setDrag((d) => (d ? { ...d, x: e.clientX, y: e.clientY } : d));
+      setHover(dropAt(e.clientX, e.clientY));
+    };
+    const up = (e) => {
+      const kind = dropAt(e.clientX, e.clientY);
+      setDrag(null);
+      setHover(null);
+      if (!kind) return;
+      if (kind === "doorstroom") setPending({ id: dragId, name: dragName });
+      else onMove(dragId, kind, team);
+    };
+    const cancel = () => { setDrag(null); setHover(null); };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+    };
+  }, [dragId]); // eslint-disable-line react-hooks/exhaustive-deps
   const accessible = new Set(players.map((p) => p.id));
   const byName = (a, b) => a.name.localeCompare(b.name, "nl");
 
@@ -2657,15 +2711,25 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
       </>
     );
     return accessible.has(r.playerId) ? (
-      <button onClick={() => onOpen(r.playerId)} className="block w-full text-left text-xs leading-snug py-1 text-slate-900 font-medium underline decoration-stone-300 underline-offset-2">
-        {label}
-      </button>
+      <div className={`flex items-start gap-1 ${drag && drag.id === r.playerId ? "opacity-40" : ""}`}>
+        <span
+          onPointerDown={(e) => startDrag(e, r)}
+          style={{ touchAction: "none" }}
+          title="Sleep naar een ander vakje"
+          className="shrink-0 cursor-grab select-none text-stone-300 text-sm leading-snug py-1 px-0.5"
+        >
+          ⋮⋮
+        </span>
+        <button onClick={() => onOpen(r.playerId)} className="block flex-1 text-left text-xs leading-snug py-1 text-slate-900 font-medium underline decoration-stone-300 underline-offset-2">
+          {label}
+        </button>
+      </div>
     ) : (
       <div className="text-xs leading-snug py-1 text-slate-700">{label}</div>
     );
   };
-  const Box = ({ title, arrow, tone, items, render, className = "" }) => (
-    <div className={`rounded-xl border p-2 ${tone} ${className}`}>
+  const Box = ({ title, arrow, tone, items, render, className = "", drop }) => (
+    <div data-drop={drop} className={`rounded-xl border p-2 ${tone} ${className} ${drag && drop && hover === drop ? "ring-2 ring-orange-500" : ""}`}>
       <div className="text-[10px] uppercase font-bold tracking-wide text-stone-500 mb-1">
         {arrow} {title} <span className="text-stone-400">({items.length})</span>
       </div>
@@ -2675,7 +2739,8 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
 
   return (
     <div className="p-3">
-      <div className="font-bold text-slate-900 mb-2">Teamoverzicht volgend seizoen</div>
+      <div className="font-bold text-slate-900 mb-0.5">Teamoverzicht volgend seizoen</div>
+      <div className="text-[11px] text-stone-400 mb-2">Sleep een speler aan de ⋮⋮ naar een ander vakje. Tik op de naam om de speler te openen.</div>
       <div className="flex gap-1.5 overflow-x-auto pb-2 mb-2">
         {myTeams.map((t) => (
           <button
@@ -2688,15 +2753,39 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
         ))}
       </div>
 
-      <Box title="Uitstroom" arrow="↑" tone="bg-rose-50 border-rose-200" items={leaving} render={(r) => <Name r={r} />} className="mb-2" />
+      <Box title="Uitstroom" arrow="↑" drop="uitstroom" tone="bg-rose-50 border-rose-200" items={leaving} render={(r) => <Name r={r} />} className="mb-2" />
       <div className="grid grid-cols-3 gap-2 mb-2">
         <Box title="Komt van" arrow="→" tone="bg-sky-50 border-sky-200" items={arriving} render={(r) => <Name r={r} suffix={r.currentTeam || (r.teams || [])[0]} />} />
-        <Box title={`Blijft ${team}`} arrow="●" tone="bg-orange-50 border-orange-300" items={stays} render={(r) => <Name r={r} />} />
-        <Box title="Doorstroom" arrow="→" tone="bg-emerald-50 border-emerald-200" items={out} render={(r) => <Name r={r} suffix={r.flowTo || "team nog niet bepaald"} />} />
+        <Box title={`Blijft ${team}`} arrow="●" drop="blijft" tone="bg-orange-50 border-orange-300" items={stays} render={(r) => <Name r={r} />} />
+        <Box title="Doorstroom" arrow="→" drop="doorstroom" tone="bg-emerald-50 border-emerald-200" items={out} render={(r) => <Name r={r} suffix={r.flowTo || "team nog niet bepaald"} />} />
       </div>
-      <Box title="Instroom" arrow="↓" tone="bg-violet-50 border-violet-200" items={joining} render={(r) => <Name r={r} />} className="mb-2" />
-      {undecided.length > 0 && (
-        <Box title="Nog geen keuze" arrow="?" tone="bg-white border-stone-200" items={undecided} render={(r) => <Name r={r} />} />
+      <Box title="Instroom" arrow="↓" drop="instroom" tone="bg-violet-50 border-violet-200" items={joining} render={(r) => <Name r={r} />} className="mb-2" />
+      {drag && (
+        <div className="fixed z-50 pointer-events-none bg-slate-900 text-white text-xs font-semibold px-3 py-1.5 rounded-full shadow-lg" style={{ left: drag.x + 12, top: drag.y - 12 }}>
+          {drag.name}
+        </div>
+      )}
+      {pending && (
+        <div className="fixed inset-0 bg-black/40 flex items-end lg:items-center justify-center z-50" onClick={() => setPending(null)}>
+          <div className="bg-white rounded-t-2xl lg:rounded-2xl p-4 w-full max-w-md max-h-[70vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="font-bold text-slate-900 mb-1">{pending.name} stroomt door naar…</div>
+            <div className="text-xs text-stone-400 mb-3">Kies het team voor volgend seizoen.</div>
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {teams.filter((t) => t !== team).map((t) => (
+                <button key={t} onClick={() => { onMove(pending.id, "doorstroom", team, t); setPending(null); }} className="text-sm font-semibold px-3 py-1.5 rounded-full border border-stone-300 bg-white text-stone-700 hover:bg-orange-50">
+                  {t}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => { onMove(pending.id, "doorstroom", team, ""); setPending(null); }} className="text-sm font-semibold text-stone-600 bg-stone-100 rounded-lg px-4 py-2">Team nog niet bepaald</button>
+              <button onClick={() => setPending(null)} className="text-sm font-semibold text-stone-500 px-4 py-2">Annuleren</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {(undecided.length > 0 || drag) && (
+        <Box title="Nog geen keuze" arrow="?" drop="geen" tone="bg-white border-stone-200" items={undecided} render={(r) => <Name r={r} />} />
       )}
     </div>
   );
