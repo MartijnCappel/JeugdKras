@@ -519,11 +519,13 @@ export default function KrasApp() {
   // Volgend seizoen per speler (alleen coordinator en gekoppelde trainer/begeleider)
   const [nextSeason, setNextSeason] = useState({});
   const [flowRowsDb, setFlowRowsDb] = useState([]);
+  const [staffTeams, setStaffTeams] = useState({}); // staffId -> [teamnamen]
   const flowRows = useMemo(() => {
     if (BACKEND) return flowRowsDb;
-    return players
-      .filter((p) => nextSeason[p.id])
-      .map((p) => ({ playerId: p.id, name: p.name, currentTeam: nextSeason[p.id].currentTeam || (p.teams || [])[0] || "", status: nextSeason[p.id].status || "", flowTo: nextSeason[p.id].flowTo || "" }));
+    return players.map((p) => {
+      const n = nextSeason[p.id] || {};
+      return { playerId: p.id, name: p.name, birthYear: p.dob ? Number(String(p.dob).slice(0, 4)) : null, currentTeam: n.currentTeam || "", teams: p.teams || [], status: n.status || "", flowTo: n.flowTo || "" };
+    });
   }, [BACKEND, flowRowsDb, players, nextSeason]);
   const [authNotice, setAuthNotice] = useState("");
   const [recovery, setRecovery] = useState(false);
@@ -809,10 +811,28 @@ export default function KrasApp() {
     if (failed) await loadConversations();
   }
 
+  async function loadStaffTeams() {
+    const { data } = await supabase.from("staff_teams").select("staff_id, team");
+    if (!data) return;
+    const m = {};
+    data.forEach((r) => { (m[r.staff_id] = m[r.staff_id] || []).push(r.team); });
+    setStaffTeams(m);
+  }
+
+  async function toggleStaffTeam(staffId, team) {
+    const has = (staffTeams[staffId] || []).includes(team);
+    setStaffTeams((m) => ({ ...m, [staffId]: has ? (m[staffId] || []).filter((t) => t !== team) : [...(m[staffId] || []), team] }));
+    if (!BACKEND) return;
+    const { error } = has
+      ? await supabase.from("staff_teams").delete().eq("staff_id", staffId).eq("team", team)
+      : await supabase.from("staff_teams").insert({ staff_id: staffId, team });
+    if (error) { flash("Team toewijzen mislukt: " + error.message); loadStaffTeams(); }
+  }
+
   async function loadFlowRows() {
     const { data } = await supabase.rpc("team_overview_rows");
     if (!data) return;
-    setFlowRowsDb(data.map((r) => ({ playerId: r.o_player_id, name: r.o_player_name, currentTeam: r.o_current_team, status: r.o_status || "", flowTo: r.o_flow_to || "" })));
+    setFlowRowsDb(data.map((r) => ({ playerId: r.o_player_id, name: r.o_player_name, birthYear: r.o_birth_year || null, currentTeam: r.o_current_team || "", teams: r.o_teams || [], status: r.o_status || "", flowTo: r.o_flow_to || "" })));
   }
 
   async function loadNextSeason() {
@@ -928,6 +948,7 @@ export default function KrasApp() {
     await loadTempPasswords();
     await loadNextSeason();
     await loadFlowRows();
+    await loadStaffTeams();
   }
 
   async function persistTrainingDiff(oldList, newList) {
@@ -1453,6 +1474,9 @@ export default function KrasApp() {
               onSaveProfile={saveProfileData}
               tempPasswords={tempPasswords}
               onResetPassword={resetPassword}
+              teams={teams}
+              staffTeams={staffTeams}
+              onToggleStaffTeam={toggleStaffTeam}
               players={shownPlayers}
               onTogglePlayerCoach={(staffId, playerId) => {
                 setPlayers((ps) =>
@@ -1471,6 +1495,7 @@ export default function KrasApp() {
               rows={flowRows}
               players={shownPlayers}
               teams={teams}
+              assignedTeams={(currentUser && staffTeams[currentUser.id]) || []}
               isCoordinator={role === "coordinator"}
               onOpen={(id) => { setDetailPlayerId(id); setTab("spelers"); markPlayerAlertsSeen(id); }}
             />
@@ -2349,7 +2374,7 @@ function BeheerScreen({ users, currentUserId, tempPasswords = {}, onResetPasswor
 // Staf — koppel spelers aan trainers/begeleiders/specialisten (coördinator)
 // ---------------------------------------------------------------------------
 
-function StafScreen({ users, players, onTogglePlayerCoach, onSaveProfile, tempPasswords = {}, onResetPassword }) {
+function StafScreen({ users, players, onTogglePlayerCoach, onSaveProfile, tempPasswords = {}, onResetPassword, teams = [], staffTeams = {}, onToggleStaffTeam }) {
   const [openStaffId, setOpenStaffId] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [search, setSearch] = useState("");
@@ -2409,6 +2434,22 @@ function StafScreen({ users, players, onTogglePlayerCoach, onSaveProfile, tempPa
                   >
                     Wachtwoord resetten
                   </button>
+                  {(getRoles(u).includes("trainer") || getRoles(u).includes("begeleider")) && (
+                    <div className="mb-3">
+                      <div className="text-[10px] uppercase font-semibold text-stone-400 mb-1">Toegewezen teams (teamoverzicht)</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {teams.map((t) => {
+                          const on = (staffTeams[u.id] || []).includes(t);
+                          return (
+                            <button key={t} onClick={() => onToggleStaffTeam(u.id, t)}
+                              className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${on ? "bg-orange-600 text-white border-orange-600" : "bg-white text-stone-600 border-stone-300"}`}>
+                              {t}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                   {players.map((p) => {
                     const linked = p.coachIds.includes(u.id);
                     return (
@@ -2528,41 +2569,34 @@ function PlayerRow({ p, alertLabels, onOpen }) {
 }
 
 // Teamoverzicht: links komen spelers van andere teams, rechts stromen door, boven uitstroom, onder instroom.
-function TeamOverviewScreen({ rows, players, teams = [], isCoordinator, onOpen }) {
-  const myTeams = isCoordinator
-    ? teams
-    : [...new Set(players.flatMap((p) => p.teams || []))].sort();
+function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isCoordinator, onOpen }) {
+  const derived = [...new Set(players.flatMap((p) => p.teams || []))].sort();
+  const myTeams = isCoordinator ? teams : BACKEND || assignedTeams.length ? assignedTeams : derived;
   const [picked, setPicked] = useState(null);
   const team = myTeams.includes(picked) ? picked : myTeams[0];
   const accessible = new Set(players.map((p) => p.id));
   const byName = (a, b) => a.name.localeCompare(b.name, "nl");
 
   if (!team) {
-    return <div className="p-4 text-sm text-stone-500">Je bent nog niet aan een team gekoppeld.</div>;
+    return <div className="p-4 text-sm text-stone-500">Je bent nog niet aan een team toegewezen. Vraag de coördinator om je aan een team toe te wijzen.</div>;
   }
 
-  const rowOf = Object.fromEntries(rows.map((r) => [r.playerId, r]));
-  const inTeam = rows.filter((r) => r.currentTeam === team);
+  const belongs = (r) => (r.currentTeam ? r.currentTeam === team : (r.teams || []).includes(team));
+  const inTeam = rows.filter(belongs);
   const stays = inTeam.filter((r) => r.status === "blijft").sort(byName);
   const out = inTeam.filter((r) => r.status === "doorstroom").sort(byName);
   const leaving = inTeam.filter((r) => r.status === "uitstroom").sort(byName);
-  const arriving = rows.filter((r) => r.status === "doorstroom" && r.flowTo === team && r.currentTeam !== team).sort(byName);
+  const arriving = rows.filter((r) => r.status === "doorstroom" && r.flowTo === team && !belongs(r)).sort(byName);
   const joining = rows
-    .filter((r) => r.status === "instroom" && (r.flowTo === team || (!r.flowTo && r.currentTeam === team)))
+    .filter((r) => r.status === "instroom" && (r.flowTo === team || (!r.flowTo && belongs(r))))
     .sort(byName);
-  const undecided = players
-    .filter((p) => {
-      const r = rowOf[p.id];
-      if (r && r.status) return false;
-      return r && r.currentTeam ? r.currentTeam === team : (p.teams || []).includes(team);
-    })
-    .map((p) => ({ playerId: p.id, name: p.name }))
-    .sort(byName);
+  const undecided = inTeam.filter((r) => !r.status).sort(byName);
 
   const Name = ({ r, suffix }) => {
     const label = (
       <>
         {r.name}
+        {r.birthYear ? <span className="text-stone-400"> · {r.birthYear}</span> : null}
         {suffix ? <span className="text-stone-400"> ({suffix})</span> : null}
       </>
     );
@@ -2585,9 +2619,7 @@ function TeamOverviewScreen({ rows, players, teams = [], isCoordinator, onOpen }
 
   return (
     <div className="p-3">
-      <div className="flex items-center justify-between mb-2">
-        <div className="font-bold text-slate-900">Teamoverzicht volgend seizoen</div>
-      </div>
+      <div className="font-bold text-slate-900 mb-2">Teamoverzicht volgend seizoen</div>
       <div className="flex gap-1.5 overflow-x-auto pb-2 mb-2">
         {myTeams.map((t) => (
           <button
@@ -2602,7 +2634,7 @@ function TeamOverviewScreen({ rows, players, teams = [], isCoordinator, onOpen }
 
       <Box title="Uitstroom" arrow="↑" tone="bg-rose-50 border-rose-200" items={leaving} render={(r) => <Name r={r} />} className="mb-2" />
       <div className="grid grid-cols-3 gap-2 mb-2">
-        <Box title="Komt van" arrow="→" tone="bg-sky-50 border-sky-200" items={arriving} render={(r) => <Name r={r} suffix={r.currentTeam} />} />
+        <Box title="Komt van" arrow="→" tone="bg-sky-50 border-sky-200" items={arriving} render={(r) => <Name r={r} suffix={r.currentTeam || (r.teams || [])[0]} />} />
         <Box title={`Blijft ${team}`} arrow="●" tone="bg-orange-50 border-orange-300" items={stays} render={(r) => <Name r={r} />} />
         <Box title="Doorstroom" arrow="→" tone="bg-emerald-50 border-emerald-200" items={out} render={(r) => <Name r={r} suffix={r.flowTo || "team nog niet bepaald"} />} />
       </div>
