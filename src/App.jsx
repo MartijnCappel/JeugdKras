@@ -1388,7 +1388,8 @@ export default function KrasApp() {
   return (
     <div className="h-dvh bg-stone-200 flex justify-center font-sans overflow-hidden">
       <BrandStyle />
-      <div className="w-full max-w-md bg-white h-full flex flex-col relative shadow-xl overflow-hidden">
+      <div className="w-full max-w-md md:max-w-2xl lg:max-w-none bg-white h-full flex flex-col lg:flex-row relative shadow-xl lg:shadow-none overflow-hidden">
+        <div className="flex-1 min-h-0 min-w-0 flex flex-col lg:order-2">
         {/* Top bar */}
         <div className="shrink-0 z-20 bg-white">
           <div className="px-4 pt-3 pb-2 flex items-center justify-between">
@@ -1419,6 +1420,7 @@ export default function KrasApp() {
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: "touch" }}>
+          <div className="w-full lg:max-w-6xl lg:mx-auto">
           {tab === "home" && (
             <HomeScreen
               user={currentUser}
@@ -1860,10 +1862,12 @@ export default function KrasApp() {
               }}
             />
           )}
+          </div>
+        </div>
         </div>
 
-        {/* Bottom tab bar */}
-        <div className="shrink-0 bg-white border-t border-stone-200 flex z-30" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+        {/* Bottom tab bar (op een laptop een zijbalk) */}
+        <div className="shrink-0 bg-white border-t border-stone-200 flex z-30 lg:order-1 lg:flex-col lg:w-56 lg:border-t-0 lg:border-r lg:py-3 lg:overflow-y-auto" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
           {tabs.map((t) => {
             const Icon = t.icon;
             const active = tab === t.key;
@@ -1878,14 +1882,14 @@ export default function KrasApp() {
                   setActiveConvoId(null);
                   if (t.key === "beheer") markBeheerSeen();
                 }}
-                className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 relative ${
-                  active ? "text-orange-600" : "text-stone-400"
+                className={`flex-1 lg:flex-none flex flex-col lg:flex-row items-center lg:gap-3 gap-0.5 py-2.5 lg:py-3 lg:px-5 relative ${
+                  active ? "text-orange-600 lg:bg-orange-50" : "text-stone-400 lg:hover:bg-stone-50"
                 }`}
               >
                 <Icon size={20} strokeWidth={active ? 2.5 : 2} />
-                <span className={`text-[10px] ${active ? "font-semibold" : ""}`}>{t.label}</span>
+                <span className={`text-[10px] lg:text-sm ${active ? "font-semibold" : ""}`}>{t.label}</span>
                 {TAB_UNREAD[t.key] && (
-                  <span className="absolute top-1.5 right-6 w-2.5 h-2.5 bg-rose-500 rounded-full" />
+                  <span className="absolute top-1.5 right-6 lg:top-1/2 lg:-translate-y-1/2 lg:right-5 w-2.5 h-2.5 bg-rose-500 rounded-full" />
                 )}
               </button>
             );
@@ -1893,7 +1897,7 @@ export default function KrasApp() {
         </div>
 
         {toast && (
-          <div className="absolute bottom-20 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-sm px-4 py-2 rounded-full shadow-lg z-40">
+          <div className="absolute bottom-20 lg:bottom-8 left-1/2 lg:left-[60%] -translate-x-1/2 bg-slate-900 text-white text-sm px-4 py-2 rounded-full shadow-lg z-40">
             {toast}
           </div>
         )}
@@ -2285,7 +2289,7 @@ function BeheerScreen({ users, currentUserId, tempPasswords = {}, onResetPasswor
       </div>
       <div>
         <div className="font-bold text-slate-900 mb-2">Wachten op goedkeuring ({pending.length})</div>
-        <div className="space-y-2">
+        <div className="space-y-2 lg:space-y-0 lg:grid lg:grid-cols-2 xl:grid-cols-3 lg:gap-3 lg:items-start">
           {pending.length === 0 && <div className="text-sm text-stone-400">Geen openstaande aanvragen.</div>}
           {pending.map((u) => (
             <div key={u.id} className="bg-white rounded-xl p-3 border border-stone-200">
@@ -2313,7 +2317,7 @@ function BeheerScreen({ users, currentUserId, tempPasswords = {}, onResetPasswor
 
       <div>
         <div className="font-bold text-slate-900 mb-2">Alle gebruikers ({active.length})</div>
-        <div className="space-y-2">
+        <div className="space-y-2 lg:space-y-0 lg:grid lg:grid-cols-2 xl:grid-cols-3 lg:gap-3 lg:items-start">
           {active.map((u) => (
             <div key={u.id} className="bg-white rounded-xl p-3 border border-stone-200">
               <div className="flex items-center justify-between mb-2">
@@ -2396,7 +2400,7 @@ function StafScreen({ users, players, onTogglePlayerCoach, onSaveProfile, tempPa
           onChange={(e) => setSearch(e.target.value)}
         />
       </div>
-      <div className="space-y-2">
+      <div className="space-y-2 lg:space-y-0 lg:grid lg:grid-cols-2 xl:grid-cols-3 lg:gap-3 lg:items-start">
         {staffUsers.length === 0 && <div className="text-sm text-stone-400">Niemand gevonden.</div>}
         {staffUsers.map((u) => {
           const linkedCount = players.filter((p) => p.coachIds.includes(u.id)).length;
@@ -2522,7 +2526,7 @@ function SpelersScreen({ players, teams = [], currentUser, alertLabelsByPlayer =
 
       <div className="mb-4">
         <div className="font-bold text-slate-900 mb-2 text-sm">Gekoppelde spelers ({linked.length})</div>
-        <div className="space-y-2">
+        <div className="space-y-2 lg:space-y-0 lg:grid lg:grid-cols-2 xl:grid-cols-3 lg:gap-3 lg:items-start">
           {linked.length === 0 && <div className="text-sm text-stone-400">Nog geen spelers aan jou gekoppeld.</div>}
           {linked.map((p) => (
             <PlayerRow key={p.id} p={p} alertLabels={alertLabelsByPlayer[p.id]} onOpen={onOpen} />
@@ -2532,7 +2536,7 @@ function SpelersScreen({ players, teams = [], currentUser, alertLabelsByPlayer =
 
       <div>
         <div className="font-bold text-slate-900 mb-2 text-sm">Niet-gekoppelde spelers ({unlinked.length})</div>
-        <div className="space-y-2">
+        <div className="space-y-2 lg:space-y-0 lg:grid lg:grid-cols-2 xl:grid-cols-3 lg:gap-3 lg:items-start">
           {unlinked.length === 0 && <div className="text-sm text-stone-400">Geen overige spelers.</div>}
           {unlinked.map((p) => (
             <PlayerRow key={p.id} p={p} onOpen={onOpen} />
@@ -3088,8 +3092,8 @@ function AddLogModal({ onClose, onSave }) {
   const [title, setTitle] = useState("");
   const [note, setNote] = useState("");
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50" onClick={onClose}>
-      <div className="bg-white rounded-t-2xl p-4 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/40 flex items-end lg:items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-t-2xl lg:rounded-2xl p-4 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
         <div className="font-bold text-slate-900 mb-3">Logboekregel toevoegen</div>
         <select className="w-full border border-stone-300 rounded-lg px-3 py-2 mb-2 text-sm" value={type} onChange={(e) => setType(e.target.value)}>
           {Object.keys(LOG_TYPE_COLOR).map((t) => <option key={t} value={t}>{t}</option>)}
@@ -3251,7 +3255,7 @@ function TrainingenScreen({ trainings, players, users, currentUser, chatReadCoun
           <Plus size={14} /> Nieuw
         </button>
       </div>
-      <div className="space-y-2">
+      <div className="space-y-2 lg:space-y-0 lg:grid lg:grid-cols-2 xl:grid-cols-3 lg:gap-3 lg:items-start">
         {sorted.length === 0 && (
           <div className="text-sm text-stone-400">
             {filterMode === "mijn" ? "Je bent bij geen enkele training ingedeeld." : "Nog geen trainingen gepland."}
@@ -3298,8 +3302,8 @@ function CreateTrainingModal({ players, staffUsers, onClose, onCreate }) {
   const [selectedTrainers, setSelectedTrainers] = useState([]);
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50" onClick={onClose}>
-      <div className="bg-white rounded-t-2xl p-4 w-full max-w-md max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/40 flex items-end lg:items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-t-2xl lg:rounded-2xl p-4 w-full max-w-md max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-1">
           <div className="font-bold text-slate-900">Nieuwe training</div>
           <div className="text-xs text-stone-400">Stap {step} van 2</div>
@@ -3505,8 +3509,8 @@ function EditTrainingModal({ training, players, staffUsers, scope, onClose, onSa
   const [selectedTrainers, setSelectedTrainers] = useState(training.trainerIds);
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50" onClick={onClose}>
-      <div className="bg-white rounded-t-2xl p-4 w-full max-w-md max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/40 flex items-end lg:items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-t-2xl lg:rounded-2xl p-4 w-full max-w-md max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="font-bold text-slate-900 mb-1">{scope === "series" ? "Hele serie bewerken" : "Training bewerken"}</div>
         {scope === "series" && <div className="text-xs text-stone-400 mb-3">De datum van elke training in de reeks blijft ongewijzigd.</div>}
 
@@ -3568,8 +3572,8 @@ function CancelTrainingModal({ training, onClose, onConfirm }) {
   const [message, setMessage] = useState("Deze training is geannuleerd.");
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50" onClick={onClose}>
-      <div className="bg-white rounded-t-2xl p-4 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/40 flex items-end lg:items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-t-2xl lg:rounded-2xl p-4 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
         <div className="font-bold text-slate-900 mb-1">Training annuleren</div>
         <div className="text-xs text-stone-500 mb-3">Alle deelnemers krijgen hierover automatisch een bericht in het trainingsgesprek.</div>
 
@@ -3730,8 +3734,8 @@ function TrainingLogModal({ training, onClose, onSave }) {
   const [mood, setMood] = useState(null);
   const [note, setNote] = useState("");
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50" onClick={onClose}>
-      <div className="bg-white rounded-t-2xl p-4 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/40 flex items-end lg:items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-t-2xl lg:rounded-2xl p-4 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
         <div className="font-bold text-slate-900 mb-1">Training loggen</div>
         <div className="text-sm text-stone-500 mb-3">{training?.name}</div>
         <div className="mb-3">
@@ -3979,8 +3983,8 @@ function SchemaFormModal({ title, submitLabel, players, initial, onClose, onSubm
   const [selectedPlayers, setSelectedPlayers] = useState(initial?.playerIds || []);
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50" onClick={onClose}>
-      <div className="bg-white rounded-t-2xl p-4 w-full max-w-md max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/40 flex items-end lg:items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-t-2xl lg:rounded-2xl p-4 w-full max-w-md max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-1">
           <div className="font-bold text-slate-900">{title}</div>
           <div className="text-xs text-stone-400">Stap {step} van 2</div>
@@ -4227,8 +4231,8 @@ function BerichtenScreen({ currentUser, users, players, conversations, conversat
       </div>
 
       {showNew && (
-        <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50" onClick={() => setShowNew(false)}>
-          <div className="bg-white rounded-t-2xl p-4 w-full max-w-md max-h-[70vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/40 flex items-end lg:items-center justify-center z-50" onClick={() => setShowNew(false)}>
+          <div className="bg-white rounded-t-2xl lg:rounded-2xl p-4 w-full max-w-md max-h-[70vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="font-bold text-slate-900 mb-1">Nieuw bericht</div>
             <div className="text-xs text-stone-400 mb-3">Je kunt alleen berichten sturen naar mensen aan wie je gekoppeld bent.</div>
             {others.length === 0 && <div className="text-sm text-stone-400 py-2">Nog niemand gekoppeld.</div>}
