@@ -2329,7 +2329,7 @@ function BeheerScreen({ users, currentUserId, tempPasswords = {}, onResetPasswor
                   <Trash2 size={16} />
                 </button>
               </div>
-              {tempPasswords[u.id] && <TempPasswordBox password={tempPasswords[u.id]} />}
+              {tempPasswords[u.id] && <TempPasswordBox password={tempPasswords[u.id]} user={u} />}
               {editingId === u.id ? (
                 <ProfileEditForm
                   initial={{ firstName: u.firstName, lastName: u.lastName, city: u.city || "", dob: u.dob || "", email: u.email || "" }}
@@ -2431,7 +2431,7 @@ function StafScreen({ users, players, onTogglePlayerCoach, onSaveProfile, tempPa
                       </button>
                     </div>
                   )}
-                  {tempPasswords[u.id] && <TempPasswordBox password={tempPasswords[u.id]} />}
+                  {tempPasswords[u.id] && <TempPasswordBox password={tempPasswords[u.id]} user={u} />}
                   <button
                     onClick={() => { if (confirm(`Wachtwoord van ${u.firstName} ${u.lastName} resetten?`)) onResetPassword(u.id); }}
                     className="text-xs font-semibold text-stone-600 bg-stone-100 rounded-lg px-3 py-1.5 mb-2"
@@ -2755,7 +2755,7 @@ function SpelerDetailScreen({ player, users, viewerId, tempPassword, onResetPass
         )}
         {canResetPw && (
           <div className="mb-3">
-            {tempPassword && <TempPasswordBox password={tempPassword} />}
+            {tempPassword && <TempPasswordBox password={tempPassword} user={users.find((u) => u.id === player.userId)} />}
             {!confirmReset ? (
               <button onClick={() => setConfirmReset(true)} className="text-xs font-semibold text-stone-600 bg-stone-100 rounded-lg px-3 py-1.5">
                 Wachtwoord resetten
@@ -4296,11 +4296,45 @@ function ChatScreen({ convo, currentUser, users, onBack, onSend }) {
 // Meer / Profiel
 // ---------------------------------------------------------------------------
 
-function TempPasswordBox({ password }) {
+function TempPasswordBox({ password, user }) {
+  const [copied, setCopied] = useState(false);
+  const link = window.location.origin + window.location.pathname.replace(/index\.html$/, "");
+  const message = user
+    ? `Hallo ${user.firstName} ${user.lastName},\n\nwe nodigen je graag uit om gebruik te maken van de KrasApp. Deze app is bedoeld om alles rondom de trainingen en wedstrijden van Handbalvereniging Kras Volendam voor jou goed te organiseren.\n\nDe link is: ${link}\nJouw e-mailadres om in te loggen is: ${user.email}\nJouw tijdelijke wachtwoord is: ${password}\n\nNa inloggen kun je al je gegevens aanpassen.`
+    : "";
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(message);
+    } catch (e) {
+      const ta = document.createElement("textarea");
+      ta.value = message;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); } catch (e2) { /* niets */ }
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
   return (
     <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 mb-2">
-      <div className="text-[10px] uppercase font-semibold text-amber-800">Tijdelijk wachtwoord</div>
-      <div className="font-mono text-base font-bold text-slate-900 select-all">{password}</div>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-[10px] uppercase font-semibold text-amber-800">Tijdelijk wachtwoord</div>
+          <div className="font-mono text-base font-bold text-slate-900 select-all">{password}</div>
+        </div>
+        {user && (
+          <button
+            onClick={copy}
+            className="shrink-0 text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-200 text-amber-900"
+            title="Kopieert een uitnodiging die je in een mail of WhatsApp kunt plakken"
+          >
+            {copied ? "Gekopieerd ✓" : "Bericht"}
+          </button>
+        )}
+      </div>
       <div className="text-[11px] text-amber-800">Wordt getoond tot de gebruiker het zelf heeft gewijzigd. Geef het persoonlijk door.</div>
     </div>
   );
