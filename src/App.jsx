@@ -202,7 +202,7 @@ const initialTeams = ["Jongens A1", "Jongens B1", "Meiden A1", "Heren 1"];
 
 const POSITION_OPTIONS = ["Linkerhoek", "Linker opbouw", "Midden opbouw", "Rechter opbouw", "Rechterhoek", "Cirkel", "Keeper"];
 const TRAINING_TYPE_OPTIONS = ["Kracht", "Team", "Positie", "Loop", "Wedstrijd", "Anders"];
-const TRAINING_LOCATION_OPTIONS = ["Opperdam", "Seinpaal", "Succes", "Kreil", "Anders"];
+const TRAINING_LOCATION_OPTIONS = ["Opperdam", "Opperdam Oud", "Opperdam Nieuw", "Seinpaal", "Succes", "Kreil", "Verenigingsruimte", "Anders"];
 
 const MOOD_SCALE = [
   { v: 1, emoji: "😞", label: "Heel laag" },
