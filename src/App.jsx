@@ -3255,7 +3255,11 @@ function TrainingenScreen({ trainings, players, users, currentUser, chatReadCoun
     return d;
   });
   const weekTrainings = visibleTrainings.filter((t) => weekDays.some((d) => toISODateLocal(d) === t.date));
-  const sorted = visibleTrainings.slice().sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+  const [pickedDay, setPickedDay] = useState(null);
+  const selDay = pickedDay && weekDays.some((d) => toISODateLocal(d) === pickedDay) ? pickedDay : null;
+  const sorted = visibleTrainings
+    .filter((t) => !selDay || t.date === selDay)
+    .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
   const todayISO = toISODateLocal(new Date());
   const first = weekDays[0];
   const last = weekDays[6];
@@ -3304,17 +3308,26 @@ function TrainingenScreen({ trainings, players, users, currentUser, chatReadCoun
           const has = weekTrainings.some((t) => t.date === iso);
           const isToday = iso === todayISO;
           return (
-            <div key={iso} className={`text-center rounded-lg py-2 border ${isToday ? "bg-orange-100 border-orange-300" : "bg-white border-stone-200"}`}>
+            <button
+              key={iso}
+              onClick={() => setPickedDay(selDay === iso ? null : iso)}
+              className={`text-center rounded-lg py-2 border ${isToday ? "bg-orange-100 border-orange-300" : "bg-white border-stone-200"} ${selDay === iso ? "ring-2 ring-orange-500" : ""}`}
+            >
               <div className={`text-[10px] ${isToday ? "text-orange-700 font-semibold" : "text-stone-500"}`}>{DAY_NAMES[d.getDay()]}</div>
               <div className="text-sm font-semibold text-slate-900">{d.getDate()}</div>
               <div className={`mx-auto mt-0.5 w-1.5 h-1.5 rounded-full ${has ? "bg-orange-500" : "bg-transparent"}`} />
-            </div>
+            </button>
           );
         })}
       </div>
 
       <div className="flex items-center justify-between mb-2">
-        <div className="font-bold text-slate-900">{filterMode === "mijn" ? "Mijn trainingen" : "Alle trainingen"}</div>
+        <div className="font-bold text-slate-900">
+          {selDay ? new Date(selDay + "T12:00:00").toLocaleDateString("nl-NL", { weekday: "long", day: "numeric", month: "long" }) : filterMode === "mijn" ? "Mijn trainingen" : "Alle trainingen"}
+          {selDay && (
+            <button onClick={() => setPickedDay(null)} className="ml-2 text-[11px] font-semibold text-orange-600 align-middle">Toon alles</button>
+          )}
+        </div>
         <button onClick={() => setShowCreate(true)} className="text-orange-600 flex items-center gap-1 text-xs font-semibold">
           <Plus size={14} /> Nieuw
         </button>
@@ -3322,7 +3335,7 @@ function TrainingenScreen({ trainings, players, users, currentUser, chatReadCoun
       <div className="space-y-2 lg:space-y-0 lg:grid lg:grid-cols-2 xl:grid-cols-3 lg:gap-3 lg:items-start">
         {sorted.length === 0 && (
           <div className="text-sm text-stone-400">
-            {filterMode === "mijn" ? "Je bent bij geen enkele training ingedeeld." : "Nog geen trainingen gepland."}
+            {selDay ? "Geen trainingen op deze dag." : filterMode === "mijn" ? "Je bent bij geen enkele training ingedeeld." : "Nog geen trainingen gepland."}
           </div>
         )}
         {sorted.map((t) => {
