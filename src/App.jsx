@@ -322,6 +322,7 @@ const TABS = {
     { key: "team", label: "Team", icon: ArrowLeftRight },
     { key: "staf", label: "Staf", icon: UserCheck },
     { key: "beheer", label: "Beheer", icon: Shield },
+    { key: "schemas", label: "Schema's", icon: ClipboardList },
     { key: "trainingen", label: "Trainingen", icon: Calendar },
     { key: "berichten", label: "Berichten", icon: MessageSquare },
     { key: "meer", label: "Meer", icon: MoreHorizontal },
@@ -330,6 +331,7 @@ const TABS = {
     { key: "home", label: "Home", icon: Home },
     { key: "spelers", label: "Spelers", icon: Users },
     { key: "team", label: "Team", icon: ArrowLeftRight },
+    { key: "schemas", label: "Schema's", icon: ClipboardList },
     { key: "trainingen", label: "Trainingen", icon: Calendar },
     { key: "berichten", label: "Berichten", icon: MessageSquare },
     { key: "meer", label: "Meer", icon: MoreHorizontal },
@@ -338,6 +340,7 @@ const TABS = {
     { key: "home", label: "Home", icon: Home },
     { key: "spelers", label: "Spelers", icon: Users },
     { key: "team", label: "Team", icon: ArrowLeftRight },
+    { key: "schemas", label: "Schema's", icon: ClipboardList },
     { key: "trainingen", label: "Trainingen", icon: Calendar },
     { key: "berichten", label: "Berichten", icon: MessageSquare },
     { key: "meer", label: "Meer", icon: MoreHorizontal },
@@ -507,6 +510,10 @@ export default function KrasApp() {
   const myRoles = getRoles(currentUser);
   const role = currentUser ? (myRoles.includes(activeRole) ? activeRole : myRoles[0]) : undefined;
   // Trainers en begeleiders zien alleen de aan hen gekoppelde spelers (coördinator en specialist zien iedereen).
+  const isSchemaStaff = role === "coordinator" || role === "trainer" || role === "begeleider" || role === "specialist";
+  const [schemaScope, setSchemaScope] = useState("alle");
+  const ownSchemas = currentUser ? schemas.filter((x) => x.specialistId === currentUser.id) : [];
+  const visibleSchemas = role === "coordinator" && schemaScope === "alle" ? schemas : ownSchemas;
   const shownPlayers =
     currentUser && (role === "trainer" || role === "begeleider")
       ? players.filter((p) => (p.coachIds || []).includes(currentUser.id))
@@ -520,6 +527,7 @@ export default function KrasApp() {
   const [nextSeason, setNextSeason] = useState({});
   const [flowRowsDb, setFlowRowsDb] = useState([]);
   const [staffTeams, setStaffTeams] = useState({}); // staffId -> [teamnamen]
+  const usersT = useMemo(() => users.map((u) => ({ ...u, teamNames: staffTeams[u.id] || [] })), [users, staffTeams]);
   const flowRows = useMemo(() => {
     if (BACKEND) return flowRowsDb;
     return players.map((p) => {
@@ -1360,7 +1368,7 @@ export default function KrasApp() {
           setActiveRole(r);
           setTab(TABS[r][0].key);
         }}
-        users={users}
+        users={usersT}
       />
     );
   }
@@ -1459,7 +1467,7 @@ export default function KrasApp() {
               role={role}
               players={shownPlayers}
               trainings={trainings}
-              users={users}
+              users={usersT}
               onOpenPlayer={(id) => {
                 setDetailPlayerId(id);
                 setTab("spelers");
@@ -1469,7 +1477,7 @@ export default function KrasApp() {
 
           {tab === "beheer" && role === "coordinator" && (
             <BeheerScreen
-              users={users}
+              users={usersT}
               currentUserId={currentUser.id}
               tempPasswords={tempPasswords}
               onResetPassword={resetPassword}
@@ -1506,7 +1514,7 @@ export default function KrasApp() {
 
           {tab === "staf" && role === "coordinator" && (
             <StafScreen
-              users={users}
+              users={usersT}
               onSaveProfile={saveProfileData}
               tempPasswords={tempPasswords}
               onResetPassword={resetPassword}
@@ -1549,7 +1557,7 @@ export default function KrasApp() {
           {tab === "spelers" && detailPlayerId && (
             <SpelerDetailScreen
               player={players.find((p) => p.id === detailPlayerId)}
-              users={users}
+              users={usersT}
               viewerId={currentUser.id}
               tempPassword={tempPasswords[players.find((p) => p.id === detailPlayerId)?.userId]}
               onResetPassword={() => resetPassword(players.find((p) => p.id === detailPlayerId)?.userId)}
@@ -1631,7 +1639,7 @@ export default function KrasApp() {
             <TrainingenScreen
               trainings={trainings}
               players={shownPlayers}
-              users={users}
+              users={usersT}
               currentUser={currentUser}
               chatReadCounts={chatReadCounts}
               seenTrainingIds={seenTrainingIds}
@@ -1656,7 +1664,7 @@ export default function KrasApp() {
             <TrainingDetailScreen
               training={trainings.find((t) => t.id === detailTrainingId)}
               players={shownPlayers}
-              users={users}
+              users={usersT}
               currentUser={currentUser}
               onBack={() => setDetailTrainingId(null)}
               onSetAttendance={(playerId, status) => {
@@ -1703,10 +1711,18 @@ export default function KrasApp() {
             />
           )}
 
-          {tab === "schemas" && role === "specialist" && !detailSchemaId && (
+          {tab === "schemas" && isSchemaStaff && !detailSchemaId && (
             <SpecialistSchemasScreen
-              schemas={schemas.filter((s) => s.specialistId === currentUser.id)}
+              schemas={visibleSchemas}
+              allCount={schemas.length}
+              ownCount={ownSchemas.length}
+              scope={schemaScope}
+              onScope={setSchemaScope}
+              isCoordinator={role === "coordinator"}
+              users={usersT}
+              currentUserId={currentUser.id}
               players={shownPlayers}
+              teams={teams}
               onOpen={(id) => setDetailSchemaId(id)}
               onCreate={(s) => {
                 setSchemas((ss) => [...ss, { ...s, id: newId("s"), specialistId: currentUser.id }]);
@@ -1714,10 +1730,13 @@ export default function KrasApp() {
               }}
             />
           )}
-          {tab === "schemas" && role === "specialist" && detailSchemaId && (
+          {tab === "schemas" && isSchemaStaff && detailSchemaId && schemas.find((s) => s.id === detailSchemaId) && (
             <SchemaDetailScreen
               schema={schemas.find((s) => s.id === detailSchemaId)}
-              players={shownPlayers}
+              players={role === "coordinator" || role === "specialist" ? players : shownPlayers}
+              teams={teams}
+              users={usersT}
+              logbook={logbook}
               onBack={() => setDetailSchemaId(null)}
               onDelete={() => {
                 setSchemas((ss) => ss.filter((s) => s.id !== detailSchemaId));
@@ -1759,6 +1778,7 @@ export default function KrasApp() {
                     title,
                     note,
                     score: overallScore,
+                    values,
                     date: todayLocalISO(),
                     author: `${currentUser.firstName} ${currentUser.lastName}`,
                     schemaId: detailSchemaId,
@@ -1775,7 +1795,7 @@ export default function KrasApp() {
             <SpelerEigenScreen
               player={players.find((p) => p.userId === currentUser.id)}
               trainings={trainings.filter((t) => t.playerIds.includes(players.find((p) => p.userId === currentUser.id)?.id))}
-              users={users}
+              users={usersT}
               currentUser={currentUser}
               chatReadCounts={chatReadCounts}
               seenTrainingIds={seenTrainingIds}
@@ -1843,7 +1863,7 @@ export default function KrasApp() {
           {tab === "berichten" && !activeConvoId && (
             <BerichtenScreen
               currentUser={currentUser}
-              users={users}
+              users={usersT}
               players={shownPlayers}
               conversations={conversations}
               conversationHasUnread={conversationHasUnread}
@@ -1867,7 +1887,7 @@ export default function KrasApp() {
             <ChatScreen
               convo={conversations.find((c) => c.id === activeConvoId)}
               currentUser={currentUser}
-              users={users}
+              users={usersT}
               onBack={() => setActiveConvoId(null)}
               onSend={(text) => {
                 setConversations((cs) =>
@@ -1883,7 +1903,7 @@ export default function KrasApp() {
             <MeerScreen
               user={currentUser}
               role={role}
-              users={users}
+              users={usersT}
               onLogout={logout}
               onOpenPlayerNamesOnly={role === "speler"}
               players={shownPlayers}
@@ -1901,7 +1921,7 @@ export default function KrasApp() {
         </div>
 
         {/* Bottom tab bar (op een laptop een zijbalk) */}
-        <div className="shrink-0 bg-white border-t border-stone-200 flex z-30 lg:order-1 lg:flex-col lg:w-56 lg:border-t-0 lg:border-r lg:py-3 lg:overflow-y-auto" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+        <div className="shrink-0 bg-white border-t border-stone-200 flex z-30 lg:order-1 lg:flex-col lg:w-56 lg:border-t-0 lg:border-r lg:py-3 overflow-x-auto lg:overflow-x-visible lg:overflow-y-auto" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
           {tabs.map((t) => {
             const Icon = t.icon;
             const active = tab === t.key;
@@ -1916,7 +1936,7 @@ export default function KrasApp() {
                   setActiveConvoId(null);
                   if (t.key === "beheer") markBeheerSeen();
                 }}
-                className={`flex-1 lg:flex-none flex flex-col lg:flex-row items-center lg:gap-3 gap-0.5 py-2.5 lg:py-3 lg:px-5 relative ${
+                className={`flex-1 min-w-[58px] lg:min-w-0 lg:flex-none flex flex-col lg:flex-row items-center lg:gap-3 gap-0.5 py-2.5 lg:py-3 lg:px-5 relative ${
                   active ? "text-orange-600 lg:bg-orange-50" : "text-stone-400 lg:hover:bg-stone-50"
                 }`}
               >
@@ -2489,15 +2509,12 @@ function StafScreen({ users, players, onTogglePlayerCoach, onSaveProfile, tempPa
                       </div>
                     </div>
                   )}
-                  {players.map((p) => {
-                    const linked = p.coachIds.includes(u.id);
-                    return (
-                      <label key={p.id} className="flex items-center justify-between text-sm py-1">
-                        <span>{p.name}</span>
-                        <input type="checkbox" checked={linked} onChange={() => onTogglePlayerCoach(u.id, p.id)} />
-                      </label>
-                    );
-                  })}
+                  <SearchableChecklist
+                    items={players.map((p) => ({ id: p.id, label: p.name, teams: p.teams || [] }))}
+                    selected={players.filter((p) => p.coachIds.includes(u.id)).map((p) => p.id)}
+                    onToggle={(pid) => onTogglePlayerCoach(u.id, pid)}
+                    maxH="max-h-80"
+                  />
                 </div>
               )}
             </div>
@@ -2893,15 +2910,12 @@ function SpelerDetailScreen({ player, users, viewerId, tempPassword, onResetPass
         <div className="font-bold text-slate-900 mb-2 text-sm">Begeleiding</div>
         {canManageLinks ? (
           <div className="space-y-1">
-            {staffUsers.map((u) => {
-              const linked = player.coachIds.includes(u.id);
-              return (
-                <label key={u.id} className="flex items-center justify-between text-sm py-1">
-                  <span>{u.firstName} {u.lastName} <span className="text-stone-400 text-xs">· {roleDisplay(u)}</span></span>
-                  <input type="checkbox" checked={linked} onChange={() => onToggleCoach(u.id)} />
-                </label>
-              );
-            })}
+            <SearchableChecklist
+              items={staffUsers.map((u) => ({ id: u.id, label: `${u.firstName} ${u.lastName}`, sub: roleDisplay(u), teams: u.teamNames || [] }))}
+              selected={staffUsers.filter((u) => player.coachIds.includes(u.id)).map((u) => u.id)}
+              onToggle={(id) => onToggleCoach(id)}
+              maxH="max-h-72"
+            />
           </div>
         ) : (
           <div className="flex flex-wrap gap-2">
@@ -3394,23 +3408,23 @@ function CreateTrainingModal({ players, staffUsers, onClose, onCreate }) {
         {step === 2 && (
           <>
             <div className="text-xs font-semibold text-stone-500 mb-1">Trainer(s) / begeleiding</div>
-            <div className="space-y-1 mb-3">
-              {staffUsers.map((u) => (
-                <label key={u.id} className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={selectedTrainers.includes(u.id)} onChange={(e) => setSelectedTrainers(e.target.checked ? [...selectedTrainers, u.id] : selectedTrainers.filter((id) => id !== u.id))} />
-                  {u.firstName} {u.lastName} <span className="text-stone-400 text-xs">· {roleDisplay(u)}</span>
-                </label>
-              ))}
+            <div className="mb-3">
+              <SearchableChecklist
+                items={staffUsers.map((u) => ({ id: u.id, label: `${u.firstName} ${u.lastName}`, sub: roleDisplay(u), teams: u.teamNames || [] }))}
+                selected={selectedTrainers}
+                onChange={setSelectedTrainers}
+                maxH="max-h-44"
+              />
             </div>
 
             <div className="text-xs font-semibold text-stone-500 mb-1">Deelnemers</div>
-            <div className="space-y-1 mb-4">
-              {players.map((p) => (
-                <label key={p.id} className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={selected.includes(p.id)} onChange={(e) => setSelected(e.target.checked ? [...selected, p.id] : selected.filter((id) => id !== p.id))} />
-                  {p.name}
-                </label>
-              ))}
+            <div className="mb-4">
+              <SearchableChecklist
+                items={players.map((p) => ({ id: p.id, label: p.name, teams: p.teams || [] }))}
+                selected={selected}
+                onChange={setSelected}
+                maxH="max-h-64"
+              />
             </div>
 
             <div className="flex gap-2">
@@ -3512,7 +3526,7 @@ function TrainingDetailScreen({ training, players, users, currentUser, onBack, o
       </div>
 
       {isInvolved ? (
-        <TrainingChat training={training} users={users} currentUser={currentUser} onSend={onSendMessage} />
+        <TrainingChat training={training} users={usersT} currentUser={currentUser} onSend={onSendMessage} />
       ) : (
         <div className="text-xs text-stone-400 text-center mt-4">Alleen betrokkenen bij deze training zien het gesprek erover.</div>
       )}
@@ -3572,23 +3586,23 @@ function EditTrainingModal({ training, players, staffUsers, scope, onClose, onSa
         <textarea className="w-full border border-stone-300 rounded-lg px-3 py-2 mb-3 text-sm" placeholder="Notities" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
 
         <div className="text-xs font-semibold text-stone-500 mb-1">Trainer(s) / begeleiding</div>
-        <div className="space-y-1 mb-3">
-          {staffUsers.map((u) => (
-            <label key={u.id} className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={selectedTrainers.includes(u.id)} onChange={(e) => setSelectedTrainers(e.target.checked ? [...selectedTrainers, u.id] : selectedTrainers.filter((id) => id !== u.id))} />
-              {u.firstName} {u.lastName} <span className="text-stone-400 text-xs">· {roleDisplay(u)}</span>
-            </label>
-          ))}
+        <div className="mb-3">
+          <SearchableChecklist
+            items={staffUsers.map((u) => ({ id: u.id, label: `${u.firstName} ${u.lastName}`, sub: roleDisplay(u), teams: u.teamNames || [] }))}
+            selected={selectedTrainers}
+            onChange={setSelectedTrainers}
+            maxH="max-h-44"
+          />
         </div>
 
         <div className="text-xs font-semibold text-stone-500 mb-1">Deelnemers</div>
-        <div className="space-y-1 mb-3">
-          {players.map((p) => (
-            <label key={p.id} className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={selected.includes(p.id)} onChange={(e) => setSelected(e.target.checked ? [...selected, p.id] : selected.filter((id) => id !== p.id))} />
-              {p.name}
-            </label>
-          ))}
+        <div className="mb-3">
+          <SearchableChecklist
+            items={players.map((p) => ({ id: p.id, label: p.name, teams: p.teams || [] }))}
+            selected={selected}
+            onChange={setSelected}
+            maxH="max-h-64"
+          />
         </div>
 
         <button
@@ -3747,7 +3761,7 @@ function SpelerEigenScreen({ player, trainings, users, currentUser, chatReadCoun
                 </button>
               </div>
               {openChatFor === t.id && (
-                <TrainingChat training={t} users={users} currentUser={currentUser} onSend={(text) => onSendTrainingMessage(t.id, text)} />
+                <TrainingChat training={t} users={usersT} currentUser={currentUser} onSend={(text) => onSendTrainingMessage(t.id, text)} />
               )}
             </div>
           );
@@ -3964,27 +3978,37 @@ function ModulesScreen({ player, onUpdate }) {
 // Schema's — specialist
 // ---------------------------------------------------------------------------
 
-function SpecialistSchemasScreen({ schemas, players, onOpen, onCreate }) {
+function SpecialistSchemasScreen({ schemas, allCount, ownCount, scope, onScope, isCoordinator, users, currentUserId, players, teams = [], onOpen, onCreate }) {
   const [showCreate, setShowCreate] = useState(false);
+  const ownerName = (id) => { const u = users.find((x) => x.id === id); return u ? `${u.firstName} ${u.lastName}` : "onbekend"; };
   return (
     <div className="p-4">
       <div className="flex items-center justify-between mb-3">
-        <div className="font-bold text-slate-900">Jouw schema's</div>
+        <div className="font-bold text-slate-900">{isCoordinator ? (scope === "alle" ? "Alle schema's" : "Mijn schema's") : "Jouw schema's"}</div>
         <button onClick={() => setShowCreate(true)} className="text-orange-600 flex items-center gap-1 text-xs font-semibold">
           <Plus size={14} /> Nieuw
         </button>
       </div>
-      <div className="space-y-2">
+      {isCoordinator && (
+        <div className="flex gap-1.5 mb-3">
+          {[["alle", `Alle schema's (${allCount})`], ["eigen", `Mijn schema's (${ownCount})`]].map(([k, l]) => (
+            <button key={k} onClick={() => onScope(k)} className={`text-xs font-semibold px-3 py-1.5 rounded-full border ${scope === k ? "bg-orange-600 text-white border-orange-600" : "bg-white text-stone-600 border-stone-300"}`}>{l}</button>
+          ))}
+        </div>
+      )}
+      <div className="space-y-2 lg:space-y-0 lg:grid lg:grid-cols-2 xl:grid-cols-3 lg:gap-3 lg:items-start">
+        {schemas.length === 0 && <div className="text-sm text-stone-400">Nog geen schema's. Tik op Nieuw om er een te maken.</div>}
         {schemas.map((s) => {
-          const Icon = SCHEMA_TYPE_ICON[s.type];
+          const Icon = SCHEMA_TYPE_ICON[s.type] || ClipboardList;
           const names = s.playerIds.map((id) => players.find((p) => p.id === id)?.name).filter(Boolean).join(", ");
           const expired = isSchemaExpired(s);
           return (
             <button key={s.id} onClick={() => onOpen(s.id)} className={`w-full bg-white rounded-xl p-3 border flex items-center gap-3 text-left ${expired ? "border-rose-200 opacity-70" : "border-stone-200"}`}>
               <div className="bg-orange-100 text-orange-700 rounded-lg p-2"><Icon size={18} /></div>
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
                 <div className="font-semibold text-sm text-slate-900">{s.name}</div>
-                <div className="text-xs text-stone-500">{names} · {s.items.length} onderdelen</div>
+                <div className="text-xs text-stone-500 truncate">{s.playerIds.length} speler(s){names ? ` · ${names}` : ""} · {s.items.length} onderdelen</div>
+                {isCoordinator && s.specialistId !== currentUserId && <div className="text-[11px] text-stone-400">door {ownerName(s.specialistId)}</div>}
               </div>
               {expired && <span className="text-[10px] uppercase font-semibold text-rose-700 bg-rose-100 px-2 py-1 rounded-full shrink-0">Verlopen</span>}
               <ChevronRightIcon size={16} className="text-stone-300 shrink-0" />
@@ -3998,6 +4022,7 @@ function SpecialistSchemasScreen({ schemas, players, onOpen, onCreate }) {
           title="Nieuw schema"
           submitLabel="Schema opslaan"
           players={players}
+          teams={teams}
           onClose={() => setShowCreate(false)}
           onSubmit={(s) => { onCreate(s); setShowCreate(false); }}
         />
@@ -4006,7 +4031,139 @@ function SpecialistSchemasScreen({ schemas, players, onOpen, onCreate }) {
   );
 }
 
-function SchemaFormModal({ title, submitLabel, players, initial, onClose, onSubmit }) {
+// Doorzoekbare lijst met vinkjes: zoeken op naam en filteren op team.
+function SearchableChecklist({ items, selected, onChange, onToggle, maxH = "max-h-64" }) {
+  const [q, setQ] = useState("");
+  const [team, setTeam] = useState("");
+  const allTeams = [...new Set(items.flatMap((i) => i.teams || []))].sort((a, b) => a.localeCompare(b, "nl"));
+  const ql = q.trim().toLowerCase();
+  const shown = items.filter(
+    (i) => (!ql || `${i.label} ${i.sub || ""} ${(i.teams || []).join(" ")}`.toLowerCase().includes(ql)) && (!team || (i.teams || []).includes(team))
+  );
+  const toggle = (id, on) => (onToggle ? onToggle(id, on) : onChange(on ? [...selected, id] : selected.filter((x) => x !== id)));
+  const setMany = (on) => {
+    const ids = shown.map((i) => i.id);
+    onChange(on ? [...new Set([...selected, ...ids])] : selected.filter((x) => !ids.includes(x)));
+  };
+  return (
+    <div>
+      <div className="relative mb-2">
+        <Search size={14} className="absolute left-2.5 top-2.5 text-stone-400" />
+        <input className="w-full border border-stone-300 rounded-lg pl-8 pr-3 py-1.5 text-sm bg-white" placeholder="Zoek op naam of team" value={q} onChange={(e) => setQ(e.target.value)} />
+      </div>
+      {allTeams.length > 0 && (
+        <div className="flex gap-1.5 overflow-x-auto pb-1.5 mb-1">
+          <button type="button" onClick={() => setTeam("")} className={`shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-full border ${!team ? "bg-orange-600 text-white border-orange-600" : "bg-white text-stone-600 border-stone-300"}`}>Alle</button>
+          {allTeams.map((t) => (
+            <button type="button" key={t} onClick={() => setTeam(team === t ? "" : t)} className={`shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-full border ${team === t ? "bg-orange-600 text-white border-orange-600" : "bg-white text-stone-600 border-stone-300"}`}>{t}</button>
+          ))}
+        </div>
+      )}
+      {!onToggle && (
+        <div className="flex items-center justify-between text-[11px] text-stone-500 mb-1">
+          <span>{selected.length} geselecteerd</span>
+          <span className="flex gap-3">
+            <button type="button" onClick={() => setMany(true)} className="font-semibold text-orange-700">Selecteer zichtbare</button>
+            <button type="button" onClick={() => setMany(false)} className="font-semibold text-stone-500">Wis zichtbare</button>
+          </span>
+        </div>
+      )}
+      <div className={`space-y-1 overflow-y-auto ${maxH}`}>
+        {shown.length === 0 && <div className="text-xs text-stone-400 py-2">Niemand gevonden.</div>}
+        {shown.map((i) => (
+          <label key={i.id} className="flex items-center justify-between gap-2 text-sm py-0.5">
+            <span className="min-w-0">
+              {i.label}
+              {i.sub ? <span className="text-stone-400 text-xs"> · {i.sub}</span> : null}
+              {(i.teams || []).length > 0 && <span className="text-stone-400 text-[11px]"> ({i.teams.join(", ")})</span>}
+            </span>
+            <input type="checkbox" checked={selected.includes(i.id)} onChange={(e) => toggle(i.id, e.target.checked)} />
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Analyse van de uitkomsten van een schema (op basis van wat spelers in hun logboek loggen).
+function SchemaAnalysis({ schema, players, logbook }) {
+  const entries = logbook.filter((l) => l.schemaId === schema.id && !l.staffOnly);
+  const nameOf = (id) => players.find((p) => p.id === id)?.name || "Onbekende speler";
+  const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
+  const fmt = (n) => (n === null || n === undefined ? "—" : (Math.round(n * 10) / 10).toString().replace(".", ","));
+  const itemValue = (e, it) => {
+    if (e.values && e.values[it.id]) return e.values[it.id];
+    const hit = [...TRAINING_FEEL_SCALE].sort((a, b) => b.label.length - a.label.length).find((sc) => (e.title || "").includes(`${it.label}: ${sc.label}`));
+    return hit ? hit.v : null;
+  };
+  const byPlayer = schema.playerIds.map((pid) => {
+    const logs = entries.filter((e) => e.playerId === pid).sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+    const scores = logs.map((l) => l.score).filter(Boolean);
+    const last = scores.length ? scores[scores.length - 1] : null;
+    const before = scores.slice(0, -1);
+    const diff = last !== null && before.length ? last - avg(before) : null;
+    return { pid, name: nameOf(pid), n: logs.length, avg: avg(scores), last, lastDate: logs.length ? logs[logs.length - 1].date : null, trend: diff === null ? null : diff >= 0.5 ? "up" : diff <= -0.5 ? "down" : "flat" };
+  });
+  const logged = byPlayer.filter((x) => x.n > 0);
+  const notLogged = byPlayer.filter((x) => x.n === 0);
+  const overall = avg(entries.map((l) => l.score).filter(Boolean));
+  const perItem = schema.items.map((it) => {
+    const vals = entries.map((e) => itemValue(e, it)).filter(Boolean);
+    return { it, n: vals.length, avg: avg(vals) };
+  });
+  const arrow = { up: "↑", down: "↓", flat: "→" };
+  const arrowCls = { up: "text-emerald-600", down: "text-rose-600", flat: "text-stone-400" };
+  return (
+    <div className="bg-white rounded-xl p-4 border border-stone-200 mb-4">
+      <div className="font-bold text-slate-900 mb-2 text-sm">Analyse uitkomsten</div>
+      {entries.length === 0 ? (
+        <div className="text-sm text-stone-400">Er is nog niets gelogd voor dit schema.</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-2 mb-4 text-center">
+            <div className="bg-stone-50 rounded-lg py-2"><div className="text-lg font-bold text-slate-900">{entries.length}</div><div className="text-[10px] uppercase text-stone-400">logs</div></div>
+            <div className="bg-stone-50 rounded-lg py-2"><div className="text-lg font-bold text-slate-900">{logged.length}/{schema.playerIds.length}</div><div className="text-[10px] uppercase text-stone-400">spelers</div></div>
+            <div className="bg-stone-50 rounded-lg py-2"><div className="text-lg font-bold text-slate-900">{fmt(overall)}</div><div className="text-[10px] uppercase text-stone-400">gem. score</div></div>
+          </div>
+
+          {perItem.some((x) => x.n > 0) && (
+            <div className="mb-4">
+              <div className="text-xs font-semibold text-stone-500 mb-1.5">Gemiddeld per onderdeel (1 t/m 5)</div>
+              <div className="space-y-1.5">
+                {perItem.map(({ it, n, avg: a }) => (
+                  <div key={it.id}>
+                    <div className="flex justify-between text-xs"><span className="text-slate-800">{it.label}</span><span className="text-stone-500">{fmt(a)} · {n}x</span></div>
+                    <div className="h-2 bg-stone-100 rounded-full overflow-hidden"><div className="h-full bg-orange-500 rounded-full" style={{ width: `${a ? (a / 5) * 100 : 0}%` }} /></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="text-xs font-semibold text-stone-500 mb-1.5">Per speler</div>
+          <div className="space-y-1">
+            {logged.sort((a, b) => a.name.localeCompare(b.name, "nl")).map((x) => (
+              <div key={x.pid} className="flex items-center justify-between text-sm border-b border-stone-100 pb-1">
+                <span className="min-w-0 truncate">{x.name}</span>
+                <span className="shrink-0 text-xs text-stone-500">
+                  {x.n}x · gem. <span className="font-semibold text-slate-800">{fmt(x.avg)}</span>
+                  {x.trend && <span className={`ml-1.5 font-bold ${arrowCls[x.trend]}`}>{arrow[x.trend]}</span>}
+                  {x.lastDate && <span className="text-stone-400"> · {new Date(x.lastDate).toLocaleDateString("nl-NL", { day: "numeric", month: "short" })}</span>}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="text-[10px] text-stone-400 mt-1">Pijl: laatste score ten opzichte van het gemiddelde daarvoor.</div>
+        </>
+      )}
+      {notLogged.length > 0 && entries.length > 0 && (
+        <div className="mt-3 text-xs text-stone-500"><span className="font-semibold">Nog niet gelogd:</span> {notLogged.map((x) => x.name).join(", ")}</div>
+      )}
+    </div>
+  );
+}
+
+function SchemaFormModal({ title, submitLabel, players, teams = [], initial, onClose, onSubmit }) {
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({
     name: initial?.name || "",
@@ -4064,17 +4221,12 @@ function SchemaFormModal({ title, submitLabel, players, initial, onClose, onSubm
         {step === 2 && (
           <>
             <div className="text-xs font-semibold text-stone-500 mb-1">Voor wie</div>
-            <div className="space-y-1 mb-4 max-h-64 overflow-y-auto">
-              {players.map((p) => (
-                <label key={p.id} className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={selectedPlayers.includes(p.id)}
-                    onChange={(e) => setSelectedPlayers(e.target.checked ? [...selectedPlayers, p.id] : selectedPlayers.filter((id) => id !== p.id))}
-                  />
-                  {p.name}
-                </label>
-              ))}
+            <div className="mb-4">
+              <SearchableChecklist
+                items={players.map((p) => ({ id: p.id, label: p.name, teams: p.teams || [] }))}
+                selected={selectedPlayers}
+                onChange={setSelectedPlayers}
+              />
             </div>
 
             <div className="flex gap-2">
@@ -4095,7 +4247,7 @@ function SchemaFormModal({ title, submitLabel, players, initial, onClose, onSubm
   );
 }
 
-function SchemaDetailScreen({ schema, players, onBack, onDelete, onUpdate }) {
+function SchemaDetailScreen({ schema, players, teams = [], users = [], logbook = [], onBack, onDelete, onUpdate }) {
   const [showEdit, setShowEdit] = useState(false);
   const names = schema.playerIds.map((id) => players.find((p) => p.id === id)?.name).filter(Boolean);
   const Icon = SCHEMA_TYPE_ICON[schema.type];
@@ -4123,6 +4275,7 @@ function SchemaDetailScreen({ schema, players, onBack, onDelete, onUpdate }) {
           Bewerken
         </button>
       </div>
+      <SchemaAnalysis schema={schema} players={players} logbook={logbook} />
       <div className="bg-white rounded-xl p-4 border border-stone-200 mb-4">
         <div className="font-bold text-slate-900 mb-2 text-sm">Onderdelen</div>
         <div className="space-y-2">
@@ -4143,6 +4296,7 @@ function SchemaDetailScreen({ schema, players, onBack, onDelete, onUpdate }) {
           title="Schema bewerken"
           submitLabel="Wijzigingen opslaan"
           players={players}
+          teams={teams}
           initial={schema}
           onClose={() => setShowEdit(false)}
           onSubmit={(changes) => { onUpdate(changes); setShowEdit(false); }}
@@ -4238,6 +4392,14 @@ function BerichtenScreen({ currentUser, users, players, conversations, conversat
   const [showNew, setShowNew] = useState(false);
   const mine = conversations.filter((c) => c.participantIds.includes(currentUser.id));
   const others = users.filter((u) => u.id !== currentUser.id && u.status === "actief" && canMessage(currentUser, u, players));
+  const [q, setQ] = useState("");
+  const [teamF, setTeamF] = useState("");
+  const teamsOfUser = (u) => (u.teamNames && u.teamNames.length ? u.teamNames : players.find((p) => p.userId === u.id)?.teams || []);
+  const allT = [...new Set(others.flatMap(teamsOfUser))].sort((a, b) => a.localeCompare(b, "nl"));
+  const ql = q.trim().toLowerCase();
+  const othersShown = others.filter(
+    (u) => (!ql || `${u.firstName} ${u.lastName} ${roleDisplay(u)} ${teamsOfUser(u).join(" ")}`.toLowerCase().includes(ql)) && (!teamF || teamsOfUser(u).includes(teamF))
+  );
 
   return (
     <div className="p-4">
@@ -4271,7 +4433,24 @@ function BerichtenScreen({ currentUser, users, players, conversations, conversat
             <div className="font-bold text-slate-900 mb-1">Nieuw bericht</div>
             <div className="text-xs text-stone-400 mb-3">Je kunt alleen berichten sturen naar mensen aan wie je gekoppeld bent.</div>
             {others.length === 0 && <div className="text-sm text-stone-400 py-2">Nog niemand gekoppeld.</div>}
-            {others.map((u) => (
+            {others.length > 0 && (
+              <>
+                <div className="relative mb-2">
+                  <Search size={14} className="absolute left-2.5 top-2.5 text-stone-400" />
+                  <input className="w-full border border-stone-300 rounded-lg pl-8 pr-3 py-1.5 text-sm bg-white" placeholder="Zoek op naam of team" value={q} onChange={(e) => setQ(e.target.value)} />
+                </div>
+                {allT.length > 0 && (
+                  <div className="flex gap-1.5 overflow-x-auto pb-1.5 mb-1">
+                    <button onClick={() => setTeamF("")} className={`shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-full border ${!teamF ? "bg-orange-600 text-white border-orange-600" : "bg-white text-stone-600 border-stone-300"}`}>Alle</button>
+                    {allT.map((t) => (
+                      <button key={t} onClick={() => setTeamF(teamF === t ? "" : t)} className={`shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-full border ${teamF === t ? "bg-orange-600 text-white border-orange-600" : "bg-white text-stone-600 border-stone-300"}`}>{t}</button>
+                    ))}
+                  </div>
+                )}
+                {othersShown.length === 0 && <div className="text-xs text-stone-400 py-2">Niemand gevonden.</div>}
+              </>
+            )}
+            {othersShown.map((u) => (
               <button key={u.id} onClick={() => { onStart(u.id); setShowNew(false); }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-stone-100 flex items-center justify-between mb-1">
                 <span className="text-sm">{u.firstName} {u.lastName}</span>
                 <span className="text-xs text-stone-400">{roleDisplay(u)}</span>
