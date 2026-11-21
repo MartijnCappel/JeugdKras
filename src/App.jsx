@@ -2741,7 +2741,7 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
           onPointerDown={(e) => startDrag(e, r)}
           style={{ touchAction: "none" }}
           title="Sleep naar een ander vakje"
-          className="shrink-0 cursor-grab select-none text-stone-300 text-sm leading-snug py-1 px-0.5"
+          className="shrink-0 cursor-grab select-none text-stone-400 text-xl leading-none py-1 px-1.5 -my-0.5 rounded hover:bg-stone-100"
         >
           ⋮⋮
         </span>
