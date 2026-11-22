@@ -2682,27 +2682,6 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
     e.preventDefault();
     setDrag({ id: r.playerId, name: r.name, x: e.clientX, y: e.clientY });
   };
-  // Lang indrukken (1 seconde) op de naam start ook het slepen
-  const holdTimer = useRef(null);
-  const holdPos = useRef({ x: 0, y: 0 });
-  const suppressClick = useRef(false);
-  const holdCancel = () => {
-    if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; }
-  };
-  const holdStart = (e, r) => {
-    if (e.pointerType === "mouse" && e.button !== 0) return;
-    holdCancel();
-    holdPos.current = { x: e.clientX, y: e.clientY };
-    holdTimer.current = setTimeout(() => {
-      holdTimer.current = null;
-      suppressClick.current = true;
-      setDrag({ id: r.playerId, name: r.name, x: holdPos.current.x, y: holdPos.current.y });
-    }, 1000);
-  };
-  const holdMove = (e) => {
-    if (!holdTimer.current) return;
-    if (Math.hypot(e.clientX - holdPos.current.x, e.clientY - holdPos.current.y) > 10) holdCancel();
-  };
   const dragId = drag ? drag.id : null;
   const dragName = drag ? drag.name : "";
   useEffect(() => {
@@ -2712,7 +2691,6 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
       setHover(dropAt(e.clientX, e.clientY));
     };
     const up = (e) => {
-      setTimeout(() => { suppressClick.current = false; }, 0);
       const kind = dropAt(e.clientX, e.clientY);
       setDrag(null);
       setHover(null);
@@ -2794,13 +2772,7 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
           ⋮⋮
         </span>
         <button
-          onPointerDown={(e) => holdStart(e, r)}
-          onPointerMove={holdMove}
-          onPointerUp={holdCancel}
-          onPointerLeave={holdCancel}
-          onContextMenu={(e) => e.preventDefault()}
-          onClick={() => { if (suppressClick.current) { suppressClick.current = false; return; } onOpen(r.playerId); }}
-          style={{ WebkitTouchCallout: "none", userSelect: "none" }}
+          onClick={() => onOpen(r.playerId)}
           className="block flex-1 text-left text-xs leading-snug py-1 text-slate-900 font-medium underline decoration-stone-300 underline-offset-2">
           {label}
         </button>
@@ -2821,7 +2793,7 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
   return (
     <div className="p-3">
       <div className="font-bold text-slate-900 mb-0.5">Teamoverzicht volgend seizoen</div>
-      <div className="text-[11px] text-stone-400 mb-2">Sleep een speler aan de ⋮⋮, of houd de naam 1 seconde ingedrukt, en sleep naar een ander vakje. Tik kort op de naam om de speler te openen.</div>
+      <div className="text-[11px] text-stone-400 mb-2">Sleep een speler aan de ⋮⋮ naar een ander vakje. Tik op de naam om de speler te openen.</div>
       <div className="flex gap-1.5 overflow-x-auto pb-2 mb-2">
         {myTeams.map((t) => (
           <button
