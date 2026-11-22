@@ -2641,21 +2641,24 @@ function PlayerRow({ p, alertLabels, onOpen }) {
 }
 
 // Teamoverzicht: links komen spelers van andere teams, rechts stromen door, boven uitstroom, onder instroom.
-// Leeftijdsklasse en sekse van een team, afgeleid van de teamnaam (seizoen 26/27).
-// A = 17/18 jaar, B = 15/16, C = 13/14, D = 11/12, E = 9/10, F = 7/8, Kabouter = 6 en jonger, senioren = 19+.
-const SEASON_START = 2026;
-const CLASS_AGE = { A: 17, B: 15, C: 13, D: 11, E: 9, F: 7 };
+// Leeftijdsklasse en sekse van een team, afgeleid van de teamnaam.
+// Jaarindeling seizoen 2027/2028 (elk seizoen schuift alles een jaar op):
+// A 2008-2010, B 2011-2012, C 2013-2014, D 2015-2016, E 2017-2018, F 2019-2020, Kabouter 2021-2022, senioren 2007 en eerder.
+// Het overzicht gaat over het VOLGENDE seizoen: vanaf juli is dat het jaar erna.
+const _now = new Date();
+const SEASON_START = _now.getMonth() >= 6 ? _now.getFullYear() + 1 : _now.getFullYear();
+const CLASS_YEARS = { A: [19, 17], B: [16, 15], C: [14, 13], D: [12, 11], E: [10, 9], F: [8, 7] }; // [oudste, jongste] = seizoenstart minus
 function teamProfile(name) {
   const n = (name || "").trim();
-  if (/^(HS|Heren)/i.test(n)) return { sex: "M", from: 0, to: SEASON_START - 19 };
-  if (/^(DS|Dames)/i.test(n)) return { sex: "V", from: 0, to: SEASON_START - 19 };
-  if (/^kabouter/i.test(n)) return { sex: null, from: SEASON_START - 6, to: 9999 };
+  if (/^(HS|Heren)/i.test(n)) return { sex: "M", from: 0, to: SEASON_START - 20 };
+  if (/^(DS|Dames)/i.test(n)) return { sex: "V", from: 0, to: SEASON_START - 20 };
+  if (/^kabouter/i.test(n)) return { sex: null, from: SEASON_START - 6, to: SEASON_START - 5 };
   const m = n.match(/^(M|H|Meiden\s|Jongens\s)?([A-F])\s*\d*$/i);
   if (!m) return null;
-  const off = CLASS_AGE[m[2].toUpperCase()];
+  const [old, young] = CLASS_YEARS[m[2].toUpperCase()];
   const pre = (m[1] || "").trim().toUpperCase();
   const sex = pre === "M" || pre === "MEIDEN" ? "V" : pre === "H" || pre === "JONGENS" ? "M" : null;
-  return { sex, from: SEASON_START - off - 1, to: SEASON_START - off };
+  return { sex, from: SEASON_START - old, to: SEASON_START - young };
 }
 function teamSex(name) {
   const t = teamProfile(name);
