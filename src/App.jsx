@@ -57,11 +57,11 @@ const TRAINING_FEEL_SCALE = [
 
 // Kleurcodering voor alle 5-punts scores (mood, vermoeidheid, fysieke toestand, trainingsgevoel).
 const SCORE_COLOR = {
-  1: "bg-red-700 text-white",
-  2: "bg-red-300 text-red-900",
-  3: "bg-orange-400 text-white",
-  4: "bg-green-300 text-green-900",
-  5: "bg-green-700 text-white",
+  1: "bg-[#DC2626] text-white",
+  2: "bg-[#C2540A] text-white",
+  3: "bg-[#F59E42] text-slate-900",
+  4: "bg-[#86D99B] text-green-950",
+  5: "bg-[#15803D] text-white",
 };
 
 // Een account kan meerdere rollen hebben (user.roles). Oudere gegevens met alleen user.role blijven werken.
@@ -140,11 +140,11 @@ function isSchemaExpired(schema) {
 // Kleurt een logboekblokje naar de score (1-5) die eraan gekoppeld is; grijs als er niet gescoord is.
 function logScoreColor(score) {
   const map = {
-    1: "bg-red-700 text-white border-red-800",
-    2: "bg-red-300 text-red-900 border-red-400",
-    3: "bg-orange-400 text-white border-orange-500",
-    4: "bg-green-300 text-green-900 border-green-400",
-    5: "bg-green-700 text-white border-green-800",
+    1: "bg-[#DC2626] text-white border-[#991B1B]",
+    2: "bg-[#C2540A] text-white border-[#8F3D06]",
+    3: "bg-[#F59E42] text-slate-900 border-[#D97F1F]",
+    4: "bg-[#86D99B] text-green-950 border-[#4FB872]",
+    5: "bg-[#15803D] text-white border-[#0F5F2D]",
   };
   return map[score] || "bg-stone-100 text-stone-600 border-stone-300";
 }
