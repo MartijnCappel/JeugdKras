@@ -2870,7 +2870,7 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
       )}
       {unplaced.length > 0 && (
         <div className="mt-3">
-          <Box title="Leeftijd van dit team, nog niet ingedeeld" arrow="👥" tone="bg-stone-50 border-stone-200" items={unplaced} render={(r) => <Name r={r} nodrag suffix={r.currentTeam || (r.teams || []).join(", ") || ""} />} />
+          <Box title="Leeftijd voor dit team, elders ingedeeld" arrow="👥" tone="bg-stone-50 border-stone-200" items={unplaced} render={(r) => <Name r={r} nodrag suffix={r.currentTeam || (r.teams || []).join(", ") || ""} />} />
         </div>
       )}
     </div>
