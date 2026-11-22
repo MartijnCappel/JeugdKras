@@ -4237,6 +4237,7 @@ function SearchableChecklist({ items, selected, onChange, onToggle, maxH = "max-
 
 // Analyse van de uitkomsten van een schema (op basis van wat spelers in hun logboek loggen).
 function SchemaAnalysis({ schema, players, logbook }) {
+  const [openPid, setOpenPid] = useState(null);
   const entries = logbook.filter((l) => l.schemaId === schema.id && !l.staffOnly);
   const nameOf = (id) => players.find((p) => p.id === id)?.name || "Onbekende speler";
   const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
@@ -4292,16 +4293,59 @@ function SchemaAnalysis({ schema, players, logbook }) {
 
           <div className="text-xs font-semibold text-stone-500 mb-1.5">Per speler</div>
           <div className="space-y-1">
-            {logged.sort((a, b) => a.name.localeCompare(b.name, "nl")).map((x) => (
-              <div key={x.pid} className="flex items-center justify-between text-sm border-b border-stone-100 pb-1">
-                <span className="min-w-0 truncate">{x.name}</span>
-                <span className="shrink-0 text-xs text-stone-500">
-                  {x.n}x · gem. <span className="font-semibold text-slate-800">{fmt(x.avg)}</span>
-                  {x.trend && <span className={`ml-1.5 font-bold ${arrowCls[x.trend]}`}>{arrow[x.trend]}</span>}
-                  {x.lastDate && <span className="text-stone-400"> · {new Date(x.lastDate).toLocaleDateString("nl-NL", { day: "numeric", month: "short" })}</span>}
-                </span>
-              </div>
-            ))}
+            {logged.sort((a, b) => a.name.localeCompare(b.name, "nl")).map((x) => {
+              const open = openPid === x.pid;
+              const logs = entries.filter((e) => e.playerId === x.pid).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+              const pItems = schema.items.map((it) => {
+                const vals = logs.map((e) => itemValue(e, it)).filter(Boolean);
+                return { it, n: vals.length, avg: avg(vals) };
+              });
+              return (
+                <div key={x.pid} className="border-b border-stone-100 pb-1">
+                  <button onClick={() => setOpenPid(open ? null : x.pid)} className="w-full flex items-center justify-between text-sm text-left">
+                    <span className="min-w-0 truncate font-medium text-slate-900 underline decoration-stone-300 underline-offset-2">{x.name} <span className="text-stone-400 no-underline">{open ? "▾" : "▸"}</span></span>
+                    <span className="shrink-0 text-xs text-stone-500">
+                      {x.n}x · gem. <span className="font-semibold text-slate-800">{fmt(x.avg)}</span>
+                      {x.trend && <span className={`ml-1.5 font-bold ${arrowCls[x.trend]}`}>{arrow[x.trend]}</span>}
+                      {x.lastDate && <span className="text-stone-400"> · {new Date(x.lastDate).toLocaleDateString("nl-NL", { day: "numeric", month: "short" })}</span>}
+                    </span>
+                  </button>
+                  {open && (
+                    <div className="mt-2 mb-1 bg-stone-50 rounded-lg p-3">
+                      <div className="text-xs font-semibold text-stone-500 mb-1.5">Resultaten van {x.name}</div>
+                      {pItems.some((q) => q.n > 0) && (
+                        <div className="space-y-1.5 mb-3">
+                          {pItems.map(({ it, n, avg: a }) => (
+                            <div key={it.id}>
+                              <div className="flex justify-between text-xs"><span className="text-slate-800">{it.label}</span><span className="text-stone-500">{fmt(a)} · {n}x</span></div>
+                              <div className="h-2 bg-stone-200 rounded-full overflow-hidden"><div className="h-full bg-orange-500 rounded-full" style={{ width: `${a ? (a / 5) * 100 : 0}%` }} /></div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div className="space-y-1.5">
+                        {logs.map((e, i) => (
+                          <div key={e.id || i} className="text-xs bg-white rounded-md border border-stone-200 px-2 py-1.5">
+                            <div className="flex justify-between gap-2">
+                              <span className="text-stone-500">{e.date ? new Date(e.date).toLocaleDateString("nl-NL", { weekday: "short", day: "numeric", month: "short" }) : "—"}</span>
+                              <span className="font-semibold text-slate-800">{e.score ? `Score ${e.score}` : ""}</span>
+                            </div>
+                            {schema.items.some((it) => itemValue(e, it)) ? (
+                              <div className="text-stone-600 mt-0.5">
+                                {schema.items.map((it) => (itemValue(e, it) ? `${it.label}: ${itemValue(e, it)}` : null)).filter(Boolean).join(" · ")}
+                              </div>
+                            ) : (
+                              e.title && <div className="text-stone-600 mt-0.5">{e.title}</div>
+                            )}
+                            {e.note && <div className="text-stone-500 mt-0.5 italic">{e.note}</div>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
           <div className="text-[10px] text-stone-400 mt-1">Pijl: laatste score ten opzichte van het gemiddelde daarvoor.</div>
         </>
