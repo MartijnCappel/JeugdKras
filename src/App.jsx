@@ -2641,6 +2641,27 @@ function PlayerRow({ p, alertLabels, onOpen }) {
 }
 
 // Teamoverzicht: links komen spelers van andere teams, rechts stromen door, boven uitstroom, onder instroom.
+// Leeftijdsklasse en sekse van een team, afgeleid van de teamnaam (seizoen 26/27).
+// A = 17/18 jaar, B = 15/16, C = 13/14, D = 11/12, E = 9/10, F = 7/8, Kabouter = 6 en jonger, senioren = 19+.
+const SEASON_START = 2026;
+const CLASS_AGE = { A: 17, B: 15, C: 13, D: 11, E: 9, F: 7 };
+function teamProfile(name) {
+  const n = (name || "").trim();
+  if (/^(HS|Heren)/i.test(n)) return { sex: "M", from: 0, to: SEASON_START - 19 };
+  if (/^(DS|Dames)/i.test(n)) return { sex: "V", from: 0, to: SEASON_START - 19 };
+  if (/^kabouter/i.test(n)) return { sex: null, from: SEASON_START - 6, to: 9999 };
+  const m = n.match(/^(M|H|Meiden\s|Jongens\s)?([A-F])\s*\d*$/i);
+  if (!m) return null;
+  const off = CLASS_AGE[m[2].toUpperCase()];
+  const pre = (m[1] || "").trim().toUpperCase();
+  const sex = pre === "M" || pre === "MEIDEN" ? "V" : pre === "H" || pre === "JONGENS" ? "M" : null;
+  return { sex, from: SEASON_START - off - 1, to: SEASON_START - off };
+}
+function teamSex(name) {
+  const t = teamProfile(name);
+  return t ? t.sex : null;
+}
+
 function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isCoordinator, onOpen, onMove }) {
   const derived = [...new Set(players.flatMap((p) => p.teams || []))].sort();
   const myTeams = isCoordinator ? teams : BACKEND || assignedTeams.length ? assignedTeams : derived;
@@ -2727,7 +2748,27 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
     .sort(byName);
   const undecided = inTeam.filter((r) => !r.status).sort(byName);
 
-  const Name = ({ r, suffix }) => {
+  // Spelers met de leeftijd (en sekse) van dit team die in geen enkel vak hierboven staan
+  const prof = teamProfile(team);
+  const shown = new Set([...inTeam, ...arriving, ...joining].map((r) => r.playerId));
+  const pool = new Map();
+  players.forEach((p) => pool.set(p.id, { playerId: p.id, name: p.name, birthYear: p.dob ? Number(String(p.dob).slice(0, 4)) : null, currentTeam: "", teams: p.teams || [], status: "" }));
+  rows.forEach((r) => pool.set(r.playerId, { ...(pool.get(r.playerId) || {}), ...r, birthYear: r.birthYear || (pool.get(r.playerId) || {}).birthYear || null }));
+  const unplaced = prof
+    ? [...pool.values()]
+        .filter((r) => {
+          if (shown.has(r.playerId) || r.status === "uitstroom" || !r.birthYear) return false;
+          if (r.birthYear < prof.from || r.birthYear > prof.to) return false;
+          if (prof.sex) {
+            const sx = [r.currentTeam, ...(r.teams || [])].map(teamSex).find(Boolean);
+            if (sx !== prof.sex) return false;
+          }
+          return true;
+        })
+        .sort(byName)
+    : [];
+
+  const Name = ({ r, suffix, nodrag }) => {
     const label = (
       <>
         {r.name}
@@ -2735,7 +2776,11 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
         {suffix ? <span className="text-stone-400"> ({suffix})</span> : null}
       </>
     );
-    return accessible.has(r.playerId) ? (
+    return accessible.has(r.playerId) && nodrag ? (
+      <button onClick={() => onOpen(r.playerId)} className="block w-full text-left text-xs leading-snug py-1 text-slate-900 font-medium underline decoration-stone-300 underline-offset-2">
+        {label}
+      </button>
+    ) : accessible.has(r.playerId) ? (
       <div className={`flex items-start gap-1 ${drag && drag.id === r.playerId ? "opacity-40" : ""}`}>
         <span
           onPointerDown={(e) => startDrag(e, r)}
@@ -2819,6 +2864,11 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
       )}
       {(undecided.length > 0 || drag) && (
         <Box title="Nog geen keuze" arrow="?" drop="geen" tone="bg-white border-stone-200" items={undecided} render={(r) => <Name r={r} />} />
+      )}
+      {unplaced.length > 0 && (
+        <div className="mt-3">
+          <Box title="Leeftijd van dit team, nog niet ingedeeld" arrow="👥" tone="bg-stone-50 border-stone-200" items={unplaced} render={(r) => <Name r={r} nodrag suffix={r.currentTeam || (r.teams || []).join(", ") || ""} />} />
+        </div>
       )}
     </div>
   );
