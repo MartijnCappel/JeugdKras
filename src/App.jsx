@@ -2241,6 +2241,17 @@ function WaitingProfileScreen({ user, onLogout }) {
 // Home
 // ---------------------------------------------------------------------------
 
+// Emoji in een gekleurd rondje volgens de scorekleuren (1 rood ... 5 donkergroen)
+function ScoreEmoji({ scale, v, title, size = "w-8 h-8 text-lg" }) {
+  const sc = scale.find((x) => x.v === v);
+  if (!sc) return null;
+  return (
+    <span title={title ? `${title}: ${sc.label}` : sc.label} className={`inline-flex items-center justify-center rounded-full ${size} ${SCORE_COLOR[v] || "bg-stone-100"}`}>
+      {sc.emoji}
+    </span>
+  );
+}
+
 function HomeScreen({ user, role, players, trainings, users, onOpenPlayer }) {
   // Alleen trainingen waar de ingelogde persoon zelf bij is ingedeeld.
   const upcoming = trainings
@@ -2288,9 +2299,9 @@ function HomeScreen({ user, role, players, trainings, users, onOpenPlayer }) {
                   <div className="text-xs text-stone-500">{p.positions.join(", ")}</div>
                 </div>
                 <div className="flex items-center gap-1 text-lg">
-                  <span title="Mood">{MOOD_SCALE.find((s) => s.v === p.mood)?.emoji}</span>
-                  <span title="Vermoeidheid">{FATIGUE_SCALE.find((s) => s.v === p.fatigue)?.emoji}</span>
-                  <span title="Fysieke toestand">{CONDITION_SCALE.find((s) => s.v === p.physicalCondition)?.emoji}</span>
+                  <ScoreEmoji scale={MOOD_SCALE} v={p.mood} title="Mood" />
+                  <ScoreEmoji scale={FATIGUE_SCALE} v={p.fatigue} title="Vermoeidheid" />
+                  <ScoreEmoji scale={CONDITION_SCALE} v={p.physicalCondition} title="Fysieke toestand" />
                 </div>
               </button>
             ))}
@@ -2630,9 +2641,9 @@ function PlayerRow({ p, alertLabels, onOpen }) {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         <div className="flex items-center gap-1 text-base" title="Mood · Vermoeidheid · Fysieke toestand">
-          <span>{MOOD_SCALE.find((s) => s.v === p.mood)?.emoji}</span>
-          <span>{FATIGUE_SCALE.find((s) => s.v === p.fatigue)?.emoji}</span>
-          <span>{CONDITION_SCALE.find((s) => s.v === p.physicalCondition)?.emoji}</span>
+          <ScoreEmoji scale={MOOD_SCALE} v={p.mood} title="Mood" size="w-6 h-6 text-sm" />
+          <ScoreEmoji scale={FATIGUE_SCALE} v={p.fatigue} title="Vermoeidheid" size="w-6 h-6 text-sm" />
+          <ScoreEmoji scale={CONDITION_SCALE} v={p.physicalCondition} title="Fysieke toestand" size="w-6 h-6 text-sm" />
         </div>
         <ChevronRightIcon size={16} className="text-stone-300" />
       </div>
@@ -3233,7 +3244,7 @@ function SpelerDetailScreen({ player, users, viewerId, tempPassword, onResetPass
             <div key={l.id} className={`border rounded-lg p-2 text-sm ${logScoreColor(l.score)}`}>
               <div className="flex items-center justify-between gap-2">
                 <div className="font-semibold">{l.title}</div>
-                {l.score && <span className="text-lg shrink-0">{TRAINING_FEEL_SCALE.find((s) => s.v === l.score)?.emoji}</span>}
+                {l.score && <ScoreEmoji scale={TRAINING_FEEL_SCALE} v={l.score} size="w-8 h-8 text-lg shrink-0" />}
               </div>
               {l.note && <div className="text-xs opacity-80 whitespace-pre-line">{l.note}</div>}
               <div className="text-[10px] opacity-70 mt-1 uppercase tracking-wide">{l.type}{l.staffOnly ? " · alleen staf" : ""}</div>
@@ -3994,7 +4005,7 @@ function VoortgangScreen({ player, logbook, onUpdate }) {
             <div key={l.id} className={`border rounded-lg p-2 text-sm ${logScoreColor(l.score)}`}>
               <div className="flex items-center justify-between gap-2">
                 <div className="font-semibold">{l.title}</div>
-                {l.score && <span className="text-lg shrink-0">{TRAINING_FEEL_SCALE.find((s) => s.v === l.score)?.emoji}</span>}
+                {l.score && <ScoreEmoji scale={TRAINING_FEEL_SCALE} v={l.score} size="w-8 h-8 text-lg shrink-0" />}
               </div>
               {l.note && <div className="text-xs opacity-80">{l.note}</div>}
               <div className="text-[10px] opacity-70 mt-1 uppercase tracking-wide">{l.type}</div>
