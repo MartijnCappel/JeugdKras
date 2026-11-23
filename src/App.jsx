@@ -181,6 +181,27 @@ const initialPlayers = [
 // Modules die een speler kan volgen. "Basis" is altijd geselecteerd.
 const MODULE_OPTIONS = ["Basis", "Blessurepreventie", "Positietraining", "Kracht", "Hoger team", "Handbalschool", "Handbalskoal", "Papendal"];
 const MODULE_ALWAYS_ON = "Basis";
+// Uitleg per module (te openen in het tabblad Programma van de speler)
+const MODULE_INFO = {
+  Basis: {
+    text: "Ben je lid bij Kras Volendam dan krijg je als basis 1 of 2 trainingen + een wedstrijd. Daarnaast hopen we dat je natuurlijk veel meer wilt trainen of andere leuke dingen wilt doen. Heb je geen idee bij wie je terecht kan? Jouw trainer of coordinator kan jouw altijd op weg helpen.",
+  },
+  Blessurepreventie: {
+    sub: "vanaf D/C leeftijd",
+    text: "Ga je meer trainen dan blijkt dat blessures op de loer liggen. FTC helpt ons om onze jeugd blessurevrij te houden. Dit betekent dat jij als lid een aparte overeenkomst met FTC sluit.\nBij de D/C is dit met name op goed bewegen gericht en van daaruit blessure oorzaken zo snel mogelijk weg te nemen.\nBij de B/A kan er een 2 maandelijkse preventie check gedaan worden om zo blessures preventief te detecteren en op te lossen.\nVoor meer informatie kun je bij FTC of de jeugdcoordinator terecht.",
+  },
+  Positietraining: {
+    sub: "vanaf C leeftijd",
+    text: "Train je al extra bij FTC of bij Succes (of elders) dan kun je in aanmerking komen voor extra positietraining. Extra aandacht voor handbal. Hoe ouder je wordt hoe meer het gespecialiseerd is op jouw positie.",
+  },
+  Kracht: {
+    text: "In principe bij Succes of indien afgestemd ergens anders.\nKracht training is cruciaal als je meer wilt trainen en hoger op wilt komen. Vandaar dat we dit vanaf de C jeugd als eerste stap zien op jouw basisprogramma.",
+  },
+  "Hoger team": { text: "" },
+  Handbalschool: { text: "" },
+  Handbalskoal: { text: "" },
+  Papendal: { text: "" },
+};
 
 const WEEK_DAYS = [
   { key: "ma", label: "Maandag" },
@@ -4023,6 +4044,7 @@ function VoortgangScreen({ player, logbook, onUpdate }) {
 // ---------------------------------------------------------------------------
 
 function ModulesScreen({ player, onUpdate }) {
+  const [openModule, setOpenModule] = useState(null);
   const [addingDay, setAddingDay] = useState(null);
   const [form, setForm] = useState({ kind: "school", start: "08:30", end: "15:30", label: "" });
 
@@ -4062,19 +4084,34 @@ function ModulesScreen({ player, onUpdate }) {
           {MODULE_OPTIONS.map((m) => {
             const on = modules.includes(m);
             const locked = m === MODULE_ALWAYS_ON;
+            const info = MODULE_INFO[m] || { text: "" };
+            const open = openModule === m;
             return (
-              <button
-                key={m}
-                onClick={() => toggleModule(m)}
-                disabled={locked}
-                className={`w-full flex items-center gap-3 rounded-xl p-3 border text-left ${on ? "bg-orange-50 border-orange-300" : "bg-white border-stone-200"} ${locked ? "cursor-default" : ""}`}
-              >
-                <span className={`w-5 h-5 rounded-md flex items-center justify-center border shrink-0 ${on ? "bg-orange-600 border-orange-600 text-white" : "border-stone-300 bg-white"}`}>
-                  {on && <Check size={14} />}
-                </span>
-                <span className="flex-1 text-sm font-semibold text-slate-900">{m}</span>
-                {locked && <span className="text-[10px] uppercase font-semibold text-orange-700 bg-orange-100 px-2 py-1 rounded-full">Altijd</span>}
-              </button>
+              <div key={m} className={`rounded-xl border ${on ? "bg-orange-50 border-orange-300" : "bg-white border-stone-200"}`}>
+                <div className="flex items-center gap-3 p-3">
+                  <button
+                    onClick={() => toggleModule(m)}
+                    disabled={locked}
+                    aria-label={on ? `${m} uitzetten` : `${m} aanzetten`}
+                    className={`w-5 h-5 rounded-md flex items-center justify-center border shrink-0 ${on ? "bg-orange-600 border-orange-600 text-white" : "border-stone-300 bg-white"} ${locked ? "cursor-default" : ""}`}
+                  >
+                    {on && <Check size={14} />}
+                  </button>
+                  <button onClick={() => setOpenModule(open ? null : m)} className="flex-1 min-w-0 flex items-center gap-2 text-left">
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-sm font-semibold text-slate-900">{m}</span>
+                      {info.sub && <span className="block text-[11px] text-stone-500">{info.sub}</span>}
+                    </span>
+                    {locked && <span className="text-[10px] uppercase font-semibold text-orange-700 bg-orange-100 px-2 py-1 rounded-full">Altijd</span>}
+                    <span className="text-stone-400 text-xs">{open ? "▾" : "▸"}</span>
+                  </button>
+                </div>
+                {open && (
+                  <div className="px-3 pb-3 pl-11 text-sm text-slate-700 whitespace-pre-line">
+                    {info.text || <span className="text-stone-400">Informatie volgt.</span>}
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>
