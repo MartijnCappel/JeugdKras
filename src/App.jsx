@@ -4052,9 +4052,12 @@ function ModulesScreen({ player, onUpdate }) {
 
   return (
     <div className="p-4 space-y-6">
+      <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 text-sm text-slate-800">
+        Bespreek jouw programma met je trainer om samen te kijken hoe het misschien beter kan voor jou.
+      </div>
       <div>
         <div className="font-bold text-slate-900 mb-1">Mijn modules</div>
-        <div className="text-xs text-stone-500 mb-3">Kies welke modules je volgt. Basis volg je altijd.</div>
+        <div className="text-xs text-stone-500 mb-3">Kies welke modules je volgt. De echte aanmelding vindt niet hier plaats. Per module kun je hier meer informatie vinden.</div>
         <div className="space-y-2">
           {MODULE_OPTIONS.map((m) => {
             const on = modules.includes(m);
@@ -4079,7 +4082,7 @@ function ModulesScreen({ player, onUpdate }) {
 
       <div>
         <div className="font-bold text-slate-900 mb-1">Mijn weekprogramma</div>
-        <div className="text-xs text-stone-500 mb-3">Vul je schooltijden en de tijden van al je trainingen in.</div>
+        <div className="text-xs text-stone-500 mb-3">Vul je schooltijden en de tijden van al je trainingen en wedstrijden in hoe een gemiddelde week eruit ziet.</div>
         <div className="space-y-3">
           {WEEK_DAYS.map((d) => {
             const entries = weekProgram.filter((e) => e.day === d.key).sort((a, b) => a.start.localeCompare(b.start));
