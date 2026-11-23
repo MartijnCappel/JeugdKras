@@ -202,6 +202,7 @@ const MODULE_INFO = {
   },
   Handbalschool: {
     sub: "D/C leeftijd",
+    links: { "NHV handbalschool": "https://handbal.nl/voor_verenigingen/meerjarenopleidingsplan/handbalscholen/" },
     text: "De NHV handbalschool waar je extra training kan volgen van andere trainers. Alkmaar, Amstelland of zelfs Den Haag behoren tot de mogelijkheden. Extra kosten zijn afhankelijk van de handbalschool en welke lijn gevolgd wordt. Soms kan gezocht worden naar combinaties met Volendam (bijv. bij krachttraining) zodat de reistijd beperkt kan worden. Via de NHV handbalschool worden ook selecties voor Papendal georganiseerd.",
   },
   Handbalskoal: {
@@ -209,6 +210,7 @@ const MODULE_INFO = {
     text: "De Handbalskoal van oud handballers van Volendam. 's Ochtends trainen voor je naar school gaat in een kleine groep en dus veel aandacht. Tijden en tarieven kunnen variëren en zijn te vinden op https://handbalskoalvolendam.nl",
   },
   Papendal: {
+    links: { "NHV Handbalschool": "https://handbal.nl/voor_verenigingen/meerjarenopleidingsplan/handbalscholen/" },
     text: "In verschillende vormen kun je uitgenodigd zijn om mee te trainen op Papendal. Centrale trainingen, selectieteams of Handbal academie. De officiële route naar Papendal is altijd via de NHV Handbalschool.",
   },
 };
@@ -4053,6 +4055,16 @@ function VoortgangScreen({ player, logbook, onUpdate }) {
 // Modules + weekprogramma — speler
 // ---------------------------------------------------------------------------
 
+// Zet URL's en aangewezen woorden in de uitleg om naar aantikbare links
+function renderInfoText(info) {
+  const phrases = Object.keys(info.links || {}).map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const re = new RegExp(`(https?:\\/\\/\\S+${phrases.length ? "|" + phrases.join("|") : ""})`, "g");
+  return info.text.split(re).map((part, i) => {
+    const url = /^https?:\/\//.test(part) ? part : (info.links || {})[part];
+    return url ? <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="text-orange-700 underline">{part}</a> : part;
+  });
+}
+
 function ModulesScreen({ player, onUpdate }) {
   const [openModule, setOpenModule] = useState(null);
   const [addingDay, setAddingDay] = useState(null);
@@ -4118,7 +4130,7 @@ function ModulesScreen({ player, onUpdate }) {
                 </div>
                 {open && (
                   <div className="px-3 pb-3 pl-11 text-sm text-slate-700 whitespace-pre-line">
-                    {info.text ? info.text.split(/(https?:\/\/\S+)/g).map((part, i) => (/^https?:\/\//.test(part) ? <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="text-orange-700 underline break-all">{part}</a> : part)) : <span className="text-stone-400">Informatie volgt.</span>}
+                    {info.text ? renderInfoText(info) : <span className="text-stone-400">Informatie volgt.</span>}
                   </div>
                 )}
               </div>
