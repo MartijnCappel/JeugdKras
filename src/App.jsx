@@ -197,10 +197,20 @@ const MODULE_INFO = {
   Kracht: {
     text: "In principe bij Succes of indien afgestemd ergens anders.\nKracht training is cruciaal als je meer wilt trainen en hoger op wilt komen. Vandaar dat we dit vanaf de C jeugd als eerste stap zien op jouw basisprogramma.",
   },
-  "Hoger team": { text: "" },
-  Handbalschool: { text: "" },
-  Handbalskoal: { text: "" },
-  Papendal: { text: "" },
+  "Hoger team": {
+    text: "Op aangeven van jouw trainer kun je ook bij een ander team meetrainen.\nGa je volgend jaar bij een hoger team meespelen dan is het de bedoeling dat je vanaf januari sowieso af en toe mee zal trainen om alvast kennis te maken.",
+  },
+  Handbalschool: {
+    sub: "D/C leeftijd",
+    text: "De NHV handbalschool waar je extra training kan volgen van andere trainers. Alkmaar, Amstelland of zelfs Den Haag behoren tot de mogelijkheden. Extra kosten zijn afhankelijk van de handbalschool en welke lijn gevolgd wordt. Soms kan gezocht worden naar combinaties met Volendam (bijv. bij krachttraining) zodat de reistijd beperkt kan worden. Via de NHV handbalschool worden ook selecties voor Papendal georganiseerd.",
+  },
+  Handbalskoal: {
+    sub: "Handbalskoal Volendam · D/C leeftijd",
+    text: "De Handbalskoal van oud handballers van Volendam. 's Ochtends trainen voor je naar school gaat in een kleine groep en dus veel aandacht. Tijden en tarieven kunnen variëren en zijn te vinden op https://handbalskoalvolendam.nl",
+  },
+  Papendal: {
+    text: "In verschillende vormen kun je uitgenodigd zijn om mee te trainen op Papendal. Centrale trainingen, selectieteams of Handbal academie. De officiële route naar Papendal is altijd via de NHV Handbalschool.",
+  },
 };
 
 const WEEK_DAYS = [
@@ -4108,7 +4118,7 @@ function ModulesScreen({ player, onUpdate }) {
                 </div>
                 {open && (
                   <div className="px-3 pb-3 pl-11 text-sm text-slate-700 whitespace-pre-line">
-                    {info.text || <span className="text-stone-400">Informatie volgt.</span>}
+                    {info.text ? info.text.split(/(https?:\/\/\S+)/g).map((part, i) => (/^https?:\/\//.test(part) ? <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="text-orange-700 underline break-all">{part}</a> : part)) : <span className="text-stone-400">Informatie volgt.</span>}
                   </div>
                 )}
               </div>
