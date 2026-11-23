@@ -357,7 +357,7 @@ const TABS = {
     { key: "eigen", label: "Agenda", icon: Calendar },
     { key: "voortgang", label: "Voortgang", icon: TrendingUp },
     { key: "schemas", label: "Schema's", icon: ClipboardList },
-    { key: "modules", label: "Modules", icon: Layers },
+    { key: "modules", label: "Programma", icon: Layers },
     { key: "berichten", label: "Berichten", icon: MessageSquare },
     { key: "meer", label: "Meer", icon: MoreHorizontal },
   ],
