@@ -3066,6 +3066,7 @@ function NextSeasonCard({ player, teams = [], data, onSave }) {
 
 function SpelerDetailScreen({ player, users, viewerId, tempPassword, onResetPassword, onSaveProfile, nextSeason, onSaveNextSeason, teams = [], onToggleTeam, onAddTeam, logbook, trainings, canEdit, viewerRole, onBack, onAddLog, onToggleCoach, onTogglePosition, onUpdateCondition, onToggleModule, onUpdateTvs, onDeleteLog }) {
   const [showAddLog, setShowAddLog] = useState(false);
+  const [showAllTrainings, setShowAllTrainings] = useState(false);
   const [confirmDeleteLogId, setConfirmDeleteLogId] = useState(null);
   const canDeleteLog = viewerRole === "trainer" || viewerRole === "begeleider" || viewerRole === "specialist";
   const canSeeTvs = viewerRole === "trainer" || viewerRole === "specialist" || viewerRole === "coordinator";
@@ -3367,13 +3368,39 @@ function SpelerDetailScreen({ player, users, viewerId, tempPassword, onResetPass
 
       <div className="bg-white rounded-xl p-4 border border-stone-200 mb-4">
         <div className="font-bold text-slate-900 mb-2 text-sm">Komende trainingen</div>
-        {trainings.length === 0 && <div className="text-sm text-stone-400">Geen geplande trainingen.</div>}
-        {trainings.map((t) => (
-          <div key={t.id} className="text-sm py-1 flex justify-between">
-            <span>{t.name}</span>
-            <span className="text-stone-400">{fmtDate(t.date)}</span>
-          </div>
-        ))}
+        {(() => {
+          const pad = (n) => String(n).padStart(2, "0");
+          const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+          const now = new Date();
+          const today = iso(now);
+          const weekEnd = iso(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 6));
+          const coming = trainings
+            .filter((t) => t.date >= today)
+            .sort((a, b) => (a.date + (a.time || "")).localeCompare(b.date + (b.time || "")));
+          const soon = coming.filter((t) => t.date <= weekEnd);
+          const later = coming.filter((t) => t.date > weekEnd);
+          const row = (t) => (
+            <div key={t.id} className="text-sm py-1 flex justify-between gap-2">
+              <span className="min-w-0 truncate">{t.name}</span>
+              <span className="text-stone-400 shrink-0">{fmtDate(t.date)}{t.time ? ` · ${t.time}` : ""}</span>
+            </div>
+          );
+          return (
+            <>
+              {coming.length === 0 && <div className="text-sm text-stone-400">Geen geplande trainingen.</div>}
+              {coming.length > 0 && soon.length === 0 && <div className="text-sm text-stone-400">Geen trainingen de komende 7 dagen.</div>}
+              {soon.map(row)}
+              {later.length > 0 && (
+                <>
+                  <button onClick={() => setShowAllTrainings((v) => !v)} className="mt-2 text-xs font-semibold text-orange-600">
+                    {showAllTrainings ? "▾ Verberg overige trainingen" : `▸ Toon overige trainingen (${later.length})`}
+                  </button>
+                  {showAllTrainings && <div className="mt-1 border-t border-stone-100 pt-1">{later.map(row)}</div>}
+                </>
+              )}
+            </>
+          );
+        })()}
       </div>
 
       <div className="bg-white rounded-xl p-4 border border-stone-200">
