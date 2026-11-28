@@ -2806,7 +2806,7 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
   const POS_ABBR = { linkerhoek: "LH", linkeropbouw: "LO", midopbouw: "MO", middenopbouw: "MO", rechteropbouw: "RO", rechterhoek: "RH", cirkel: "Ci", keeper: "Ke" };
   const posInit = (id) => {
     const pl = players.find((x) => x.id === id);
-    return pl && pl.positions ? pl.positions.map((q) => POS_ABBR[(q || "").toLowerCase().replace(/\s+/g, "")] || "").filter(Boolean).join("/") : "";
+    return pl && pl.positions ? pl.positions.map((q) => POS_ABBR[(q || "").toLowerCase().replace(/\s+/g, "")] || "").filter(Boolean)[0] || "" : "";
   };
   const Name = ({ r, suffix, nodrag }) => {
     const label = (
