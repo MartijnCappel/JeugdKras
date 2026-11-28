@@ -2793,11 +2793,20 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
         .sort(byName)
     : [];
 
+  // Alleen de voornaam; de achternaam erbij als de voornaam vaker voorkomt
+  const firstOf = (n) => (n || "").trim().split(/\s+/)[0].toLowerCase();
+  const firstCount = {};
+  new Set([...rows.map((x) => x.playerId), ...players.map((x) => x.id)]).forEach((id) => {
+    const nm = (rows.find((x) => x.playerId === id) || players.find((x) => x.id === id) || {}).name;
+    const f = firstOf(nm);
+    firstCount[f] = (firstCount[f] || 0) + 1;
+  });
+  const shortName = (n) => (firstCount[firstOf(n)] > 1 ? n : (n || "").trim().split(/\s+/)[0]);
   const Name = ({ r, suffix, nodrag }) => {
     const label = (
       <>
-        {r.name}
-        {r.birthYear ? <span className="text-stone-400"> · {r.birthYear}</span> : null}
+        {shortName(r.name)}
+        {r.birthYear ? <span className="text-stone-400"> · {String(r.birthYear).slice(-2)}</span> : null}
         {suffix ? <span className="text-stone-400"> ({suffix})</span> : null}
       </>
     );
