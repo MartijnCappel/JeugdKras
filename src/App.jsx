@@ -2974,7 +2974,7 @@ function SpelerDetailScreen({ player, users, viewerId, tempPassword, onResetPass
   const coaches = users.filter((u) => player.coachIds.includes(u.id));
   const staffUsers = users.filter((u) => isStaff(u));
   const canManageLinks = viewerRole !== "speler";
-  const canEditPosition = viewerRole === "trainer" || viewerRole === "begeleider";
+  const canEditPosition = viewerRole === "trainer" || viewerRole === "begeleider" || viewerRole === "coordinator";
   const canEditTeams = viewerRole === "trainer" || viewerRole === "begeleider" || viewerRole === "coordinator";
   const [newTeam, setNewTeam] = useState("");
   const [editingProfile, setEditingProfile] = useState(false);
