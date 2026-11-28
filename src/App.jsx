@@ -2669,7 +2669,7 @@ function PlayerRow({ p, alertLabels, onOpen }) {
         <div className="font-semibold text-sm text-slate-900">{p.name}{p.dob && <span className="font-normal text-stone-400"> · {String(p.dob).slice(0, 4)}</span>}</div>
         {hasAlert && <div className="text-[11px] font-semibold text-rose-600">Aangepast naar rood: {alertLabels.join(", ")}</div>}
         <div className="flex flex-wrap gap-1 mt-1">
-          {p.positions.map((pos) => <Badge key={pos}>{pos}</Badge>)}
+          {p.positions.map((pos) => <span key={pos} title={pos}><Badge>{posAbbr(pos)}</Badge></span>)}
           {(p.teams || []).map((t) => <span key={t} className="text-[10px] uppercase font-semibold px-2 py-1 rounded-full bg-slate-800 text-white">{t}</span>)}
         </div>
       </div>
@@ -2709,6 +2709,9 @@ function teamSex(name) {
   const t = teamProfile(name);
   return t ? t.sex : null;
 }
+
+const POS_ABBR = { linkerhoek: "LH", linkeropbouw: "LO", midopbouw: "MO", middenopbouw: "MO", rechteropbouw: "RO", rechterhoek: "RH", cirkel: "Ci", keeper: "Ke" };
+const posAbbr = (name) => POS_ABBR[(name || "").toLowerCase().replace(/\s+/g, "")] || name;
 
 function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isCoordinator, onOpen, onMove, onSetPosition }) {
   const derived = [...new Set(players.flatMap((p) => p.teams || []))].sort();
@@ -2806,7 +2809,6 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
   });
   const shortName = (n) => (firstCount[firstOf(n)] > 1 ? n : (n || "").trim().split(/\s+/)[0]);
   // Afkorting van de positie(s) van een speler, bijv. LH, LO, MO, RO, RH, Ci, Ke
-  const POS_ABBR = { linkerhoek: "LH", linkeropbouw: "LO", midopbouw: "MO", middenopbouw: "MO", rechteropbouw: "RO", rechterhoek: "RH", cirkel: "Ci", keeper: "Ke" };
   const posInit = (id) => {
     const pl = players.find((x) => x.id === id);
     return pl && pl.positions ? pl.positions.map((q) => POS_ABBR[(q || "").toLowerCase().replace(/\s+/g, "")] || "").filter(Boolean)[0] || "" : "";
