@@ -2832,7 +2832,7 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
       <>
         {shortName(r.name)}
         {r.birthYear ? <span className="text-stone-400"> · {String(r.birthYear).slice(-2)}</span> : null}
-        {canSeeTvs ? (
+        {canSeeTvs && view === "seizoen" ? (
           <span className="inline-flex items-center justify-center w-4 h-4 ml-1 rounded-full bg-stone-200 text-stone-700 text-[10px] font-bold align-middle no-underline" title="Talentscore">
             {tvsScore((players.find((x) => x.id === r.playerId) || {}).tvs) || "-"}
           </span>
@@ -2840,6 +2840,7 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
         {suffix ? <span className="text-stone-400"> ({suffix})</span> : null}
       </>
     );
+    const scoreHandle = canSeeTvs && view === "positie";
     return accessible.has(r.playerId) && (nodrag || (view === "persona" && !canEditTvs)) ? (
       <button onClick={() => onOpen(r.playerId)} className="block w-full text-left text-xs leading-snug py-1 text-slate-900 font-medium underline decoration-stone-300 underline-offset-2">
         {label}
@@ -2850,9 +2851,13 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
           onPointerDown={(e) => startDrag(e, r)}
           style={{ touchAction: "none" }}
           title="Sleep naar een ander vakje"
-          className={`shrink-0 cursor-grab select-none rounded hover:bg-stone-100 ${posInit(r.playerId) ? "text-[11px] font-bold text-orange-700 leading-none py-1.5 px-1 min-w-[1.75rem] text-center" : "text-stone-400 text-xl leading-none py-1 px-1.5 -my-0.5"}`}
+          className={
+            scoreHandle
+              ? "shrink-0 cursor-grab select-none inline-flex items-center justify-center w-6 h-6 mt-0.5 rounded-full bg-stone-200 hover:bg-stone-300 text-stone-700 text-xs font-bold leading-none"
+              : `shrink-0 cursor-grab select-none rounded hover:bg-stone-100 ${posInit(r.playerId) ? "text-[11px] font-bold text-orange-700 leading-none py-1.5 px-1 min-w-[1.75rem] text-center" : "text-stone-400 text-xl leading-none py-1 px-1.5 -my-0.5"}`
+          }
         >
-          {posInit(r.playerId) || "⋮⋮"}
+          {scoreHandle ? tvsScore((players.find((x) => x.id === r.playerId) || {}).tvs) || "-" : posInit(r.playerId) || "⋮⋮"}
         </span>
         <button
           onClick={() => onOpen(r.playerId)}
@@ -2877,7 +2882,7 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
     <div className="p-3">
       <div className="font-bold text-slate-900 mb-0.5">{view === "positie" ? "Teamoverzicht per positie" : view === "persona" ? "Teamoverzicht persona's" : "Teamoverzicht volgend seizoen"}</div>
       <div className="text-[11px] text-stone-400 mb-2">
-        {view === "positie" ? "Sleep een speler aan de afkorting of ⋮⋮ naar de juiste positie. Tik op de naam om de speler te openen." : view === "persona" ? (canEditTvs ? "Sleep een speler aan de afkorting of ⋮⋮ naar het juiste vak. Horizontaal: willen, verticaal: kunnen. Het cijfer in het rondje is de talentscore." : "Horizontaal: willen, verticaal: kunnen. Het cijfer in het rondje is de talentscore.") : "Sleep een speler aan de ⋮⋮ naar een ander vakje. Tik op de naam om de speler te openen."}
+        {view === "positie" ? (canSeeTvs ? "Sleep een speler aan het rondje met de talentscore naar de juiste positie." : "Sleep een speler aan de afkorting of ⋮⋮ naar de juiste positie.") + " Tik op de naam om de speler te openen." : view === "persona" ? (canEditTvs ? "Sleep een speler aan de afkorting of ⋮⋮ naar het juiste vak. Horizontaal: willen, verticaal: kunnen. Het cijfer in het rondje is de talentscore." : "Horizontaal: willen, verticaal: kunnen. Het cijfer in het rondje is de talentscore.") : "Sleep een speler aan de ⋮⋮ naar een ander vakje. Tik op de naam om de speler te openen."}
       </div>
       <div className="inline-flex rounded-lg border border-stone-300 overflow-hidden mb-2 text-xs font-semibold">
         {[["seizoen", "Volgend seizoen"], ["positie", "Per positie"], ...(canSeeTvs ? [["persona", "Persona's"]] : [])].map(([k, l]) => (
