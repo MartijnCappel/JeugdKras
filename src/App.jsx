@@ -279,6 +279,12 @@ const TVS_DEVELOPMENT_SCALE = [
   { v: 4, emoji: "🙂", label: "Boven wens" },
   { v: 5, emoji: "😄", label: "Ver boven wens" },
 ];
+// Talentscore 1-9 uit (willen, kunnen)
+const TVS_SCORE = { "1-1": 1, "1-2": 2, "1-3": 4, "2-1": 3, "2-2": 5, "2-3": 7, "3-1": 6, "3-2": 8, "3-3": 9 };
+function tvsScore(tvs) {
+  if (!tvs || !tvs.willen || !tvs.kunnen) return null;
+  return TVS_SCORE[`${tvs.willen}-${tvs.kunnen}`] || null;
+}
 function tvsTypeLabel(tvs) {
   if (!tvs || !tvs.willen || !tvs.kunnen) return null;
   return TVS_TYPES[`${tvs.willen}-${tvs.kunnen}`] || null;
@@ -1590,6 +1596,9 @@ export default function KrasApp() {
               assignedTeams={(currentUser && staffTeams[currentUser.id]) || []}
               isCoordinator={role === "coordinator"}
               onMove={moveTeamPlayer}
+              canSeeTvs={role === "trainer" || role === "specialist" || role === "coordinator"}
+              canEditTvs={role === "trainer" || role === "specialist" || role === "coordinator"}
+              onSetTvs={(id, w, k) => setPlayers((ps) => ps.map((p) => { if (p.id !== id) return p; const t = { ...(p.tvs || {}) }; if (w && k) { t.willen = w; t.kunnen = k; } else { delete t.willen; delete t.kunnen; } return { ...p, tvs: t }; }))}
               onSetPosition={(id, pos) => setPlayers((ps) => ps.map((p) => (p.id === id ? { ...p, positions: pos ? [pos] : [] } : p)))}
               onOpen={(id) => { setDetailPlayerId(id); setTab("spelers"); markPlayerAlertsSeen(id); }}
             />
@@ -2713,7 +2722,7 @@ function teamSex(name) {
 const POS_ABBR = { linkerhoek: "LH", linkeropbouw: "LO", midopbouw: "MO", middenopbouw: "MO", rechteropbouw: "RO", rechterhoek: "RH", cirkel: "Ci", keeper: "Ke" };
 const posAbbr = (name) => POS_ABBR[(name || "").toLowerCase().replace(/\s+/g, "")] || name;
 
-function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isCoordinator, onOpen, onMove, onSetPosition }) {
+function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isCoordinator, onOpen, onMove, onSetPosition, canSeeTvs = false, canEditTvs = false, onSetTvs }) {
   const derived = [...new Set(players.flatMap((p) => p.teams || []))].sort();
   const myTeams = isCoordinator ? teams : BACKEND || assignedTeams.length ? assignedTeams : derived;
   const [picked, setPicked] = useState(null);
@@ -2745,6 +2754,11 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
       setHover(null);
       if (!kind) return;
       if (kind.startsWith("pos:")) { onSetPosition(dragId, kind.slice(4)); return; }
+      if (kind.startsWith("tvs:")) {
+        const [w, k] = kind.slice(4).split("-").map(Number);
+        onSetTvs(dragId, w || null, k || null);
+        return;
+      }
       if (kind === "doorstroom") setPending({ id: dragId, name: dragName });
       else onMove(dragId, kind, team);
     };
@@ -2818,10 +2832,15 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
       <>
         {shortName(r.name)}
         {r.birthYear ? <span className="text-stone-400"> · {String(r.birthYear).slice(-2)}</span> : null}
+        {canSeeTvs ? (
+          <span className="inline-flex items-center justify-center w-4 h-4 ml-1 rounded-full bg-stone-200 text-stone-700 text-[10px] font-bold align-middle no-underline" title="Talentscore">
+            {tvsScore((players.find((x) => x.id === r.playerId) || {}).tvs) || "-"}
+          </span>
+        ) : null}
         {suffix ? <span className="text-stone-400"> ({suffix})</span> : null}
       </>
     );
-    return accessible.has(r.playerId) && nodrag ? (
+    return accessible.has(r.playerId) && (nodrag || (view === "persona" && !canEditTvs)) ? (
       <button onClick={() => onOpen(r.playerId)} className="block w-full text-left text-xs leading-snug py-1 text-slate-900 font-medium underline decoration-stone-300 underline-offset-2">
         {label}
       </button>
@@ -2856,12 +2875,12 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
 
   return (
     <div className="p-3">
-      <div className="font-bold text-slate-900 mb-0.5">{view === "positie" ? "Teamoverzicht per positie" : "Teamoverzicht volgend seizoen"}</div>
+      <div className="font-bold text-slate-900 mb-0.5">{view === "positie" ? "Teamoverzicht per positie" : view === "persona" ? "Teamoverzicht persona's" : "Teamoverzicht volgend seizoen"}</div>
       <div className="text-[11px] text-stone-400 mb-2">
-        {view === "positie" ? "Sleep een speler aan de afkorting of ⋮⋮ naar de juiste positie. Tik op de naam om de speler te openen." : "Sleep een speler aan de ⋮⋮ naar een ander vakje. Tik op de naam om de speler te openen."}
+        {view === "positie" ? "Sleep een speler aan de afkorting of ⋮⋮ naar de juiste positie. Tik op de naam om de speler te openen." : view === "persona" ? (canEditTvs ? "Sleep een speler aan de afkorting of ⋮⋮ naar het juiste vak. Horizontaal: willen, verticaal: kunnen. Het cijfer in het rondje is de talentscore." : "Horizontaal: willen, verticaal: kunnen. Het cijfer in het rondje is de talentscore.") : "Sleep een speler aan de ⋮⋮ naar een ander vakje. Tik op de naam om de speler te openen."}
       </div>
       <div className="inline-flex rounded-lg border border-stone-300 overflow-hidden mb-2 text-xs font-semibold">
-        {[["seizoen", "Volgend seizoen"], ["positie", "Per positie"]].map(([k, l]) => (
+        {[["seizoen", "Volgend seizoen"], ["positie", "Per positie"], ...(canSeeTvs ? [["persona", "Persona's"]] : [])].map(([k, l]) => (
           <button key={k} onClick={() => setView(k)} className={`px-3 py-1.5 ${view === k ? "bg-orange-600 text-white" : "bg-white text-stone-600"}`}>{l}</button>
         ))}
       </div>
@@ -2887,6 +2906,40 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
       </div>
       <Box title="Instroom" arrow="↓" drop="instroom" tone="bg-violet-50 border-violet-200" items={joining} render={(r) => <Name r={r} />} className="mb-2" />
         </>
+      )}
+      {view === "persona" && (
+        <div>
+          <div className="flex gap-1.5">
+            <div className="w-5 shrink-0 flex items-center justify-center">
+              <span className="text-[10px] uppercase font-bold tracking-wide text-stone-500" style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}>Kunnen →</span>
+            </div>
+            <div className="flex-1 grid grid-cols-3 gap-2">
+              {[3, 2, 1].flatMap((k) => [1, 2, 3].map((w) => {
+                const items = inTeam
+                  .filter((r) => {
+                    const t = (players.find((x) => x.id === r.playerId) || {}).tvs;
+                    return t && t.willen === w && t.kunnen === k;
+                  })
+                  .sort(byName);
+                const sc = TVS_SCORE[`${w}-${k}`];
+                const tone = sc >= 7 ? "bg-emerald-50 border-emerald-300" : sc >= 4 ? "bg-orange-50 border-orange-200" : "bg-stone-50 border-stone-200";
+                return (
+                  <Box key={`${w}-${k}`} title={TVS_TYPES[`${w}-${k}`]} arrow={`${sc}`} drop={`tvs:${w}-${k}`} tone={tone} items={items} render={(r) => <Name r={r} />} />
+                );
+              }))}
+            </div>
+          </div>
+          <div className="text-center text-[10px] uppercase font-bold tracking-wide text-stone-500 mt-1">Willen →</div>
+          {(() => {
+            const items = inTeam
+              .filter((r) => {
+                const t = (players.find((x) => x.id === r.playerId) || {}).tvs;
+                return !(t && t.willen && t.kunnen);
+              })
+              .sort(byName);
+            return <Box title="Nog niet gescoord" arrow="-" drop="tvs:none" tone="bg-white border-stone-200" items={items} render={(r) => <Name r={r} />} className="mt-3" />;
+          })()}
+        </div>
       )}
       {view === "positie" && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
