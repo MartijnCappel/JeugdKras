@@ -2802,6 +2802,12 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
     firstCount[f] = (firstCount[f] || 0) + 1;
   });
   const shortName = (n) => (firstCount[firstOf(n)] > 1 ? n : (n || "").trim().split(/\s+/)[0]);
+  // Afkorting van de positie(s) van een speler, bijv. LH, LO, MO, RO, RH, Ci, Ke
+  const POS_ABBR = { linkerhoek: "LH", linkeropbouw: "LO", midopbouw: "MO", middenopbouw: "MO", rechteropbouw: "RO", rechterhoek: "RH", cirkel: "Ci", keeper: "Ke" };
+  const posInit = (id) => {
+    const pl = players.find((x) => x.id === id);
+    return pl && pl.positions ? pl.positions.map((q) => POS_ABBR[(q || "").toLowerCase().replace(/\s+/g, "")] || "").filter(Boolean).join("/") : "";
+  };
   const Name = ({ r, suffix, nodrag }) => {
     const label = (
       <>
@@ -2820,9 +2826,9 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
           onPointerDown={(e) => startDrag(e, r)}
           style={{ touchAction: "none" }}
           title="Sleep naar een ander vakje"
-          className="shrink-0 cursor-grab select-none text-stone-400 text-xl leading-none py-1 px-1.5 -my-0.5 rounded hover:bg-stone-100"
+          className={`shrink-0 cursor-grab select-none rounded hover:bg-stone-100 ${posInit(r.playerId) ? "text-[11px] font-bold text-orange-700 leading-none py-1.5 px-1 min-w-[1.75rem] text-center" : "text-stone-400 text-xl leading-none py-1 px-1.5 -my-0.5"}`}
         >
-          ⋮⋮
+          {posInit(r.playerId) || "⋮⋮"}
         </span>
         <button
           onClick={() => onOpen(r.playerId)}
