@@ -2842,9 +2842,12 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
     );
     const scoreHandle = canSeeTvs && view === "positie";
     return accessible.has(r.playerId) && (nodrag || (view === "persona" && !canEditTvs)) ? (
-      <button onClick={() => onOpen(r.playerId)} className="block w-full text-left text-xs leading-snug py-1 text-slate-900 font-medium underline decoration-stone-300 underline-offset-2">
-        {label}
-      </button>
+      <div className="flex items-start gap-1">
+        <span className="shrink-0 text-[11px] font-bold text-orange-700 leading-none py-1.5 px-1 min-w-[1.75rem] text-center">{posInit(r.playerId)}</span>
+        <button onClick={() => onOpen(r.playerId)} className="block flex-1 text-left text-xs leading-snug py-1 text-slate-900 font-medium underline decoration-stone-300 underline-offset-2">
+          {label}
+        </button>
+      </div>
     ) : accessible.has(r.playerId) ? (
       <div className={`flex items-start gap-1 ${drag && drag.id === r.playerId ? "opacity-40" : ""}`}>
         <span
