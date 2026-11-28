@@ -1590,6 +1590,7 @@ export default function KrasApp() {
               assignedTeams={(currentUser && staffTeams[currentUser.id]) || []}
               isCoordinator={role === "coordinator"}
               onMove={moveTeamPlayer}
+              onSetPosition={(id, pos) => setPlayers((ps) => ps.map((p) => (p.id === id ? { ...p, positions: pos ? [pos] : [] } : p)))}
               onOpen={(id) => { setDetailPlayerId(id); setTab("spelers"); markPlayerAlertsSeen(id); }}
             />
           )}
@@ -2709,13 +2710,14 @@ function teamSex(name) {
   return t ? t.sex : null;
 }
 
-function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isCoordinator, onOpen, onMove }) {
+function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isCoordinator, onOpen, onMove, onSetPosition }) {
   const derived = [...new Set(players.flatMap((p) => p.teams || []))].sort();
   const myTeams = isCoordinator ? teams : BACKEND || assignedTeams.length ? assignedTeams : derived;
   const [picked, setPicked] = useState(null);
   const [drag, setDrag] = useState(null); // { id, name, x, y }
   const [hover, setHover] = useState(null);
   const [pending, setPending] = useState(null); // speler die moet kiezen naar welk team
+  const [view, setView] = useState("seizoen"); // "seizoen" | "positie"
   const team = myTeams.includes(picked) ? picked : myTeams[0];
   const dropAt = (x, y) => {
     const el = document.elementFromPoint(x, y);
@@ -2739,6 +2741,7 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
       setDrag(null);
       setHover(null);
       if (!kind) return;
+      if (kind.startsWith("pos:")) { onSetPosition(dragId, kind.slice(4)); return; }
       if (kind === "doorstroom") setPending({ id: dragId, name: dragName });
       else onMove(dragId, kind, team);
     };
@@ -2851,8 +2854,15 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
 
   return (
     <div className="p-3">
-      <div className="font-bold text-slate-900 mb-0.5">Teamoverzicht volgend seizoen</div>
-      <div className="text-[11px] text-stone-400 mb-2">Sleep een speler aan de ⋮⋮ naar een ander vakje. Tik op de naam om de speler te openen.</div>
+      <div className="font-bold text-slate-900 mb-0.5">{view === "positie" ? "Teamoverzicht per positie" : "Teamoverzicht volgend seizoen"}</div>
+      <div className="text-[11px] text-stone-400 mb-2">
+        {view === "positie" ? "Sleep een speler aan de afkorting of ⋮⋮ naar de juiste positie. Tik op de naam om de speler te openen." : "Sleep een speler aan de ⋮⋮ naar een ander vakje. Tik op de naam om de speler te openen."}
+      </div>
+      <div className="inline-flex rounded-lg border border-stone-300 overflow-hidden mb-2 text-xs font-semibold">
+        {[["seizoen", "Volgend seizoen"], ["positie", "Per positie"]].map(([k, l]) => (
+          <button key={k} onClick={() => setView(k)} className={`px-3 py-1.5 ${view === k ? "bg-orange-600 text-white" : "bg-white text-stone-600"}`}>{l}</button>
+        ))}
+      </div>
       <div className="flex gap-1.5 overflow-x-auto pb-2 mb-2">
         {myTeams.map((t) => (
           <button
@@ -2865,6 +2875,8 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
         ))}
       </div>
 
+      {view === "seizoen" && (
+        <>
       <Box title="Uitstroom" arrow="↑" drop="uitstroom" tone="bg-rose-50 border-rose-200" items={leaving} render={(r) => <Name r={r} />} className="mb-2" />
       <div className="grid grid-cols-3 gap-2 mb-2">
         <Box title="Komt van" arrow="→" tone="bg-sky-50 border-sky-200" items={arriving} render={(r) => <Name r={r} suffix={r.currentTeam || (r.teams || [])[0]} />} />
@@ -2872,6 +2884,26 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
         <Box title="Doorstroom" arrow="→" drop="doorstroom" tone="bg-emerald-50 border-emerald-200" items={out} render={(r) => <Name r={r} suffix={r.flowTo || "team nog niet bepaald"} />} />
       </div>
       <Box title="Instroom" arrow="↓" drop="instroom" tone="bg-violet-50 border-violet-200" items={joining} render={(r) => <Name r={r} />} className="mb-2" />
+        </>
+      )}
+      {view === "positie" && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+          {[...POSITION_OPTIONS, ""].map((pos) => {
+            const key = (x) => (x || "").toLowerCase().replace(/\s+/g, "");
+            const items = inTeam
+              .filter((r) => {
+                const pl = players.find((x) => x.id === r.playerId);
+                const first = pl && pl.positions && pl.positions[0];
+                const mapped = POSITION_OPTIONS.find((o) => key(o) === key(first)) || "";
+                return mapped === pos;
+              })
+              .sort(byName);
+            return (
+              <Box key={pos || "geen"} title={pos || "Geen positie"} arrow={pos ? POS_ABBR[key(pos)] : "?"} drop={`pos:${pos}`} tone={pos ? "bg-orange-50 border-orange-200" : "bg-white border-stone-200"} items={items} render={(r) => <Name r={r} />} />
+            );
+          })}
+        </div>
+      )}
       {drag && (
         <div className="fixed z-50 pointer-events-none bg-slate-900 text-white text-xs font-semibold px-3 py-1.5 rounded-full shadow-lg" style={{ left: drag.x + 12, top: drag.y - 12 }}>
           {drag.name}
@@ -2896,6 +2928,8 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
           </div>
         </div>
       )}
+      {view === "seizoen" && (
+        <>
       {(undecided.length > 0 || drag) && (
         <Box title="Nog geen keuze" arrow="?" drop="geen" tone="bg-white border-stone-200" items={undecided} render={(r) => <Name r={r} />} />
       )}
@@ -2903,6 +2937,8 @@ function TeamOverviewScreen({ rows, players, teams = [], assignedTeams = [], isC
         <div className="mt-3">
           <Box title="Leeftijd voor dit team, elders ingedeeld" arrow="👥" tone="bg-stone-50 border-stone-200" items={unplaced} render={(r) => <Name r={r} nodrag suffix={r.currentTeam || (r.teams || []).join(", ") || ""} />} />
         </div>
+      )}
+        </>
       )}
     </div>
   );
